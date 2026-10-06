@@ -1,0 +1,66 @@
+{
+  "source": "https://github.com/CommonPaper",
+  "license": "CC BY 4.0",
+  "templates": [
+    {
+      "name": "Mutual Non-Disclosure Agreement - Cover Page",
+      "description": "Cover Page for the Common Paper Mutual NDA, capturing the deal-specific terms (purpose, effective date, MNDA term, term of confidentiality, governing law, jurisdiction) and signatures. Incorporates the Mutual NDA Standard Terms by reference.",
+      "filename": "templates/Mutual-NDA-coverpage.md"
+    },
+    {
+      "name": "Mutual Non-Disclosure Agreement - Standard Terms",
+      "description": "Standard Terms of the Common Paper Mutual NDA, governing how two parties disclose, use and protect each other's confidential information.",
+      "filename": "templates/Mutual-NDA.md"
+    },
+    {
+      "name": "Cloud Service Agreement",
+      "description": "Common Paper standard terms for selling or buying a SaaS / cloud service, covering access and use, restrictions, fees, confidentiality, warranties, liability and termination.",
+      "filename": "templates/CSA.md"
+    },
+    {
+      "name": "Service Level Agreement",
+      "description": "Common Paper service level terms supplementing a cloud service agreement with target uptime, response times, and service credits for missed commitments.",
+      "filename": "templates/sla.md"
+    },
+    {
+      "name": "Data Processing Agreement",
+      "description": "Common Paper terms governing how a provider processes personal data on behalf of a customer, addressing processor/subprocessor roles, security, data subject requests, breaches and international transfers (e.g. GDPR).",
+      "filename": "templates/DPA.md"
+    },
+    {
+      "name": "Design Partner Agreement",
+      "description": "Common Paper terms for giving an early design partner access to a pre-release product in exchange for feedback and participation in product development.",
+      "filename": "templates/design-partner-agreement.md"
+    },
+    {
+      "name": "Professional Services Agreement",
+      "description": "Common Paper terms for engaging a provider to perform services and deliverables under one or more Statements of Work (SOWs).",
+      "filename": "templates/psa.md"
+    },
+    {
+      "name": "Partnership Agreement",
+      "description": "Common Paper terms for a business partnership between two companies, covering each party's obligations, payments, trademark use, confidentiality and liability.",
+      "filename": "templates/Partnership-Agreement.md"
+    },
+    {
+      "name": "Business Associate Agreement",
+      "description": "Common Paper terms for a HIPAA Business Associate Agreement, governing how a provider uses, discloses and safeguards protected health information (PHI).",
+      "filename": "templates/BAA.md"
+    },
+    {
+      "name": "Software License Agreement",
+      "description": "Common Paper terms for licensing installable / on-premise software to a customer, covering the license grant, restrictions, fees, support, warranties and liability.",
+      "filename": "templates/Software-License-Agreement.md"
+    },
+    {
+      "name": "Pilot Agreement",
+      "description": "Common Paper terms for a limited-time pilot or trial that lets a prospective customer evaluate a product before committing to a full purchase.",
+      "filename": "templates/Pilot-Agreement.md"
+    },
+    {
+      "name": "AI Addendum",
+      "description": "Common Paper addendum that supplements an existing agreement with terms for AI services, addressing input, output, model training and related restrictions.",
+      "filename": "templates/AI-Addendum.md"
+    }
+  ]
+}
