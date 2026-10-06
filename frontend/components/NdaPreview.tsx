@@ -1,4 +1,12 @@
-import { coverPageSections, partyRows, type NdaData } from "@/lib/nda";
+import {
+  coverPageSections,
+  NDA_TITLE,
+  PARTY_HEADINGS,
+  partyRows,
+  SIGNING_STATEMENT,
+  STANDARD_TERMS_TITLE,
+  type NdaData,
+} from "@/lib/nda";
 import type { Inline, NdaTemplate } from "@/lib/nda-template";
 
 function InlineText({ content }: { content: Inline[] }) {
@@ -38,9 +46,7 @@ interface NdaPreviewProps {
 export default function NdaPreview({ data, template }: NdaPreviewProps) {
   return (
     <article className="mx-auto max-w-[8.5in] bg-white px-10 py-12 font-serif text-[15px] leading-relaxed text-slate-900 shadow-lg ring-1 ring-slate-200 sm:px-16">
-      <h1 className="text-center text-2xl font-bold">
-        Mutual Non-Disclosure Agreement
-      </h1>
+      <h2 className="text-center text-2xl font-bold">{NDA_TITLE}</h2>
       <p className="mt-6">
         <InlineText content={template.coverIntro} />
       </p>
@@ -48,7 +54,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
       <div className="mt-6 space-y-5">
         {coverPageSections(data).map((section) => (
           <section key={section.heading}>
-            <h2 className="text-base font-bold">{section.heading}</h2>
+            <h3 className="text-base font-bold">{section.heading}</h3>
             {section.label && (
               <p className="text-xs italic text-slate-500">{section.label}</p>
             )}
@@ -64,7 +70,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
                     <span aria-hidden className="font-sans">
                       {option.checked ? "☒" : "☐"}
                     </span>
-                    <span className={option.checked ? "" : "text-slate-400"}>
+                    <span className={option.checked ? "" : "text-slate-500"}>
                       {option.text}
                     </span>
                   </li>
@@ -75,23 +81,26 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
         ))}
       </div>
 
-      <p className="mt-6">
-        By signing this Cover Page, each party agrees to enter into this MNDA as
-        of the Effective Date.
-      </p>
+      <p className="mt-6">{SIGNING_STATEMENT}</p>
 
       <table className="mt-4 w-full border-collapse text-sm">
         <thead>
           <tr>
-            <th className="w-1/4 border border-slate-300 p-2" />
-            <th className="border border-slate-300 p-2">PARTY 1</th>
-            <th className="border border-slate-300 p-2">PARTY 2</th>
+            <td className="w-1/4 border border-slate-300 p-2" />
+            {PARTY_HEADINGS.map((heading) => (
+              <th key={heading} scope="col" className="border border-slate-300 p-2">
+                {heading}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {partyRows(data).map((row) => (
             <tr key={row.label}>
-              <th className="border border-slate-300 p-2 text-left align-top font-semibold">
+              <th
+                scope="row"
+                className="border border-slate-300 p-2 text-left align-top font-semibold"
+              >
                 {row.label}
                 {row.hint && (
                   <span className="block text-xs font-normal italic text-slate-500">
@@ -102,7 +111,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
               {row.values.map((value, i) => (
                 <td
                   key={i}
-                  className="h-10 border border-slate-300 p-2 text-center align-top"
+                  className={`${row.signature ? "h-16" : "h-10"} border border-slate-300 p-2 text-center align-top`}
                 >
                   {value}
                 </td>
@@ -118,7 +127,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
 
       <hr className="my-10 border-slate-300" />
 
-      <h2 className="text-center text-xl font-bold">Standard Terms</h2>
+      <h3 className="text-center text-xl font-bold">{STANDARD_TERMS_TITLE}</h3>
       <ol className="mt-6 space-y-4">
         {template.standardTerms.map((section) => (
           <li key={section.number} className="text-justify">

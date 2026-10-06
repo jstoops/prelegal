@@ -11,7 +11,15 @@ import {
   Text,
   View,
 } from "@react-pdf/renderer";
-import { coverPageSections, partyRows, type NdaData } from "@/lib/nda";
+import {
+  coverPageSections,
+  NDA_TITLE,
+  PARTY_HEADINGS,
+  partyRows,
+  SIGNING_STATEMENT,
+  STANDARD_TERMS_TITLE,
+  type NdaData,
+} from "@/lib/nda";
 import type { Inline, NdaTemplate } from "@/lib/nda-template";
 
 // Never hyphenate words across lines; it reads poorly in legal text.
@@ -40,8 +48,10 @@ const styles = StyleSheet.create({
   paragraph: { marginTop: 3 },
   bold: { fontFamily: "Times-Bold" },
   term: { fontFamily: "Times-Bold", color: "#3730a3" },
+  // Overrides react-pdf's default blue link color.
   link: { color: "#0f172a" },
   option: { flexDirection: "row", marginTop: 3 },
+  optionText: { flex: 1 },
   checkbox: {
     width: 9,
     height: 9,
@@ -66,7 +76,9 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     textAlign: "center",
   },
+  signatureCell: { minHeight: 44 },
   labelCell: { flex: 0.7, textAlign: "left", fontFamily: "Times-Bold" },
+  signingStatement: { marginTop: 12 },
   small: { fontSize: 8.5, color: MUTED, marginTop: 10 },
   termsTitle: { fontFamily: "Times-Bold", fontSize: 15, textAlign: "center", marginBottom: 10 },
   termSection: { marginTop: 7, textAlign: "justify" },
@@ -92,26 +104,32 @@ interface NdaPdfDocumentProps {
   template: NdaTemplate;
 }
 
-export function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
+export default function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
   return (
-    <Document title="Mutual Non-Disclosure Agreement" creator="Prelegal">
+    <Document title={NDA_TITLE} creator="Prelegal">
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.title}>Mutual Non-Disclosure Agreement</Text>
+        <Text style={styles.title}>{NDA_TITLE}</Text>
         <Text>
           <PdfInline content={template.coverIntro} />
         </Text>
 
+        {/* Sections may break across pages (long user text must never be
+            clipped); minPresenceAhead keeps headings off the page bottom. */}
         {coverPageSections(data).map((section) => (
-          <View key={section.heading} wrap={false}>
-            <Text style={styles.heading}>{section.heading}</Text>
+          <View key={section.heading}>
+            <Text style={styles.heading} minPresenceAhead={40}>
+              {section.heading}
+            </Text>
             {section.label && <Text style={styles.label}>{section.label}</Text>}
             {section.lines?.map((line) => (
               <Text key={line} style={styles.paragraph}>{line}</Text>
             ))}
             {section.options?.map((option) => (
-              <View key={option.text} style={styles.option}>
+              <View key={option.text} style={styles.option} wrap={false}>
                 <Text style={styles.checkbox}>{option.checked ? "X" : ""}</Text>
-                <Text style={[{ flex: 1 }, option.checked ? {} : styles.unchecked]}>
+                <Text
+                  style={option.checked ? styles.optionText : [styles.optionText, styles.unchecked]}
+                >
                   {option.text}
                 </Text>
               </View>
@@ -120,15 +138,15 @@ export function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
         ))}
 
         <View wrap={false}>
-          <Text style={{ marginTop: 12 }}>
-            By signing this Cover Page, each party agrees to enter into this MNDA
-            as of the Effective Date.
-          </Text>
+          <Text style={styles.signingStatement}>{SIGNING_STATEMENT}</Text>
           <View style={styles.table}>
             <View style={styles.row}>
               <Text style={[styles.cell, styles.labelCell]} />
-              <Text style={[styles.cell, styles.bold]}>PARTY 1</Text>
-              <Text style={[styles.cell, styles.bold]}>PARTY 2</Text>
+              {PARTY_HEADINGS.map((heading) => (
+                <Text key={heading} style={[styles.cell, styles.bold]}>
+                  {heading}
+                </Text>
+              ))}
             </View>
             {partyRows(data).map((row) => (
               <View key={row.label} style={styles.row}>
@@ -137,7 +155,12 @@ export function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
                   {row.hint && <Text style={styles.label}>{row.hint}</Text>}
                 </View>
                 {row.values.map((value, i) => (
-                  <Text key={i} style={styles.cell}>{value}</Text>
+                  <Text
+                    key={i}
+                    style={row.signature ? [styles.cell, styles.signatureCell] : styles.cell}
+                  >
+                    {value}
+                  </Text>
                 ))}
               </View>
             ))}
@@ -149,7 +172,7 @@ export function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
       </Page>
 
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.termsTitle}>Standard Terms</Text>
+        <Text style={styles.termsTitle}>{STANDARD_TERMS_TITLE}</Text>
         {template.standardTerms.map((section) => (
           <Text key={section.number} style={styles.termSection}>
             {section.number}. <Text style={styles.bold}>{section.title}</Text>.{" "}

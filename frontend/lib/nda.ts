@@ -5,6 +5,31 @@
 
 export type TermType = "fixed" | "open";
 
+/** Document text rendered identically by the preview and the PDF. */
+export const NDA_TITLE = "Mutual Non-Disclosure Agreement";
+export const STANDARD_TERMS_TITLE = "Standard Terms";
+export const SIGNING_STATEMENT =
+  "By signing this Cover Page, each party agrees to enter into this MNDA as of the Effective Date.";
+export const PARTY_HEADINGS = ["PARTY 1", "PARTY 2"] as const;
+
+/** Captions from the template's `<label>`s, also used as form hints. */
+export const COVER_HINTS = {
+  purpose: "How Confidential Information may be used",
+  mndaTerm: "The length of this MNDA",
+  confidentiality: "How long Confidential Information is protected",
+  noticeAddress: "Use either email or postal address",
+} as const;
+
+export const MIN_YEARS = 1;
+export const MAX_YEARS = 99;
+
+/** Parses a whole number of years in [MIN_YEARS, MAX_YEARS]; null if invalid. */
+export function parseYears(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) return null;
+  const years = Number(value);
+  return years >= MIN_YEARS && years <= MAX_YEARS ? years : null;
+}
+
 export interface Party {
   printName: string;
   title: string;
@@ -14,7 +39,7 @@ export interface Party {
 
 export interface NdaData {
   purpose: string;
-  /** ISO date (YYYY-MM-DD); empty until set. */
+  /** ISO date (YYYY-MM-DD); empty when not provided. */
   effectiveDate: string;
   /** "fixed" = expires after `mndaTermYears`; "open" = continues until terminated. */
   mndaTermType: TermType;
@@ -60,7 +85,9 @@ export function todayIso(): string {
 export function formatDate(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   if (!year || !month || !day) return "";
-  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+  const date = new Date(year, month - 1, day);
+  date.setFullYear(year); // the constructor maps years 0-99 to 1900-1999
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -90,7 +117,7 @@ export function coverPageSections(data: NdaData): CoverSection[] {
   return [
     {
       heading: "Purpose",
-      label: "How Confidential Information may be used",
+      label: COVER_HINTS.purpose,
       lines: [orPlaceholder(data.purpose, "Purpose")],
     },
     {
@@ -99,7 +126,7 @@ export function coverPageSections(data: NdaData): CoverSection[] {
     },
     {
       heading: "MNDA Term",
-      label: "The length of this MNDA",
+      label: COVER_HINTS.mndaTerm,
       options: [
         {
           checked: data.mndaTermType === "fixed",
@@ -113,7 +140,7 @@ export function coverPageSections(data: NdaData): CoverSection[] {
     },
     {
       heading: "Term of Confidentiality",
-      label: "How long Confidential Information is protected",
+      label: COVER_HINTS.confidentiality,
       options: [
         {
           checked: data.confidentialityType === "fixed",
@@ -141,6 +168,8 @@ export interface PartyRow {
   /** Caption shown under the row label (the template's `<label>`). */
   hint?: string;
   values: [string, string];
+  /** Rendered with extra height to leave room for a handwritten signature. */
+  signature?: boolean;
 }
 
 /** Signature and Date are intentionally left blank for signing. */
@@ -148,22 +177,29 @@ export function partyRows(data: NdaData): PartyRow[] {
   const field = (key: keyof Party) =>
     data.parties.map((p) => p[key].trim()) as [string, string];
   return [
-    { label: "Signature", values: ["", ""] },
+    { label: "Signature", values: ["", ""], signature: true },
     { label: "Print Name", values: field("printName") },
     { label: "Title", values: field("title") },
     { label: "Company", values: field("company") },
     {
       label: "Notice Address",
-      hint: "Use either email or postal address",
+      hint: COVER_HINTS.noticeAddress,
       values: field("noticeAddress"),
     },
     { label: "Date", values: ["", ""] },
   ];
 }
 
+const MAX_SLUG_LENGTH = 40;
+
 export function pdfFileName(data: NdaData): string {
   const slug = (s: string) =>
-    s.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+    s
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "") // drop accents split off by NFKD: é -> e
+      .replace(/[^a-z0-9]+/gi, "-")
+      .slice(0, MAX_SLUG_LENGTH)
+      .replace(/^-+|-+$/g, "");
   const companies = data.parties.map((p) => slug(p.company)).filter(Boolean);
   return ["Mutual-NDA", ...companies].join("-") + ".pdf";
 }

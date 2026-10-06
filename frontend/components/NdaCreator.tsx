@@ -8,9 +8,15 @@ import type { NdaTemplate } from "@/lib/nda-template";
 
 const subscribeNever = () => () => {};
 
+const STATUS_MESSAGES = {
+  idle: "",
+  generating: "Preparing PDF…",
+  error: "Couldn't create the PDF. Please try again.",
+} as const;
+
 async function downloadPdf(data: NdaData, template: NdaTemplate) {
   // Loaded on demand: the PDF renderer is large and only needed on download.
-  const [{ pdf }, { NdaPdfDocument }] = await Promise.all([
+  const [{ pdf }, { default: NdaPdfDocument }] = await Promise.all([
     import("@react-pdf/renderer"),
     import("@/components/NdaPdfDocument"),
   ]);
@@ -25,20 +31,25 @@ async function downloadPdf(data: NdaData, template: NdaTemplate) {
 }
 
 export default function NdaCreator({ template }: { template: NdaTemplate }) {
-  const [formData, setData] = useState<NdaData>(defaultNdaData);
+  const [formData, setFormData] = useState<NdaData>(defaultNdaData);
+  const [dateEdited, setDateEdited] = useState(false);
   const [status, setStatus] = useState<"idle" | "generating" | "error">("idle");
 
-  // The Effective Date defaults to "today" in the user's time zone. It is read
-  // on the client only (empty on the server) since the page is prerendered.
+  // Until the user edits it, the Effective Date is "today" in their time zone.
+  // It's read on the client only (empty on the server) as the page is
+  // prerendered. Once edited, the user's value is kept, even if blank.
   const today = useSyncExternalStore(subscribeNever, todayIso, () => "");
-  const data = formData.effectiveDate
-    ? formData
-    : { ...formData, effectiveDate: today };
+  const ndaData = dateEdited ? formData : { ...formData, effectiveDate: today };
+
+  const handleChange = (next: NdaData) => {
+    if (next.effectiveDate !== ndaData.effectiveDate) setDateEdited(true);
+    setFormData(next);
+  };
 
   const handleDownload = async () => {
     setStatus("generating");
     try {
-      await downloadPdf(data, template);
+      await downloadPdf(ndaData, template);
       setStatus("idle");
     } catch (error) {
       console.error("Failed to generate NDA PDF", error);
@@ -59,15 +70,18 @@ export default function NdaCreator({ template }: { template: NdaTemplate }) {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            {status === "error" && (
-              <p role="alert" className="text-sm text-red-600">
-                Couldn&apos;t create the PDF. Please try again.
-              </p>
-            )}
+            {/* Always mounted so screen readers reliably announce changes. */}
+            <p
+              role="status"
+              className={`text-sm ${status === "error" ? "text-red-700" : "sr-only"}`}
+            >
+              {STATUS_MESSAGES[status]}
+            </p>
             <button
               type="button"
               onClick={handleDownload}
               disabled={status === "generating"}
+              aria-busy={status === "generating"}
               className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-wait disabled:opacity-70"
             >
               {status === "generating" ? "Preparing PDF…" : "Download PDF"}
@@ -82,10 +96,10 @@ export default function NdaCreator({ template }: { template: NdaTemplate }) {
             Fill in the key terms and the preview updates as you type. Download
             the completed agreement as a PDF when you&apos;re done.
           </p>
-          <NdaForm data={data} onChange={setData} />
+          <NdaForm data={ndaData} onChange={handleChange} />
         </aside>
         <section aria-label="NDA preview" className="min-w-0">
-          <NdaPreview data={data} template={template} />
+          <NdaPreview data={ndaData} template={template} />
         </section>
       </main>
     </div>

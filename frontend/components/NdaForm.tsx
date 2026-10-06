@@ -1,7 +1,15 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
-import type { NdaData, Party, TermType } from "@/lib/nda";
+import { useId, useState, type ReactNode } from "react";
+import {
+  COVER_HINTS,
+  MAX_YEARS,
+  MIN_YEARS,
+  parseYears,
+  type NdaData,
+  type Party,
+  type TermType,
+} from "@/lib/nda";
 
 interface NdaFormProps {
   data: NdaData;
@@ -9,7 +17,18 @@ interface NdaFormProps {
 }
 
 const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-500 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600 aria-invalid:border-red-600";
+
+function LabelText({ label, hint, id }: { label: string; hint?: string; id?: string }) {
+  return (
+    <>
+      <span id={id} className="block text-sm font-medium text-slate-700">
+        {label}
+      </span>
+      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+    </>
+  );
+}
 
 function Field({
   label,
@@ -22,8 +41,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-sm font-medium text-slate-700">{label}</span>
-      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      <LabelText label={label} hint={hint} />
       <div className="mt-1.5">{children}</div>
     </label>
   );
@@ -41,11 +59,8 @@ function FieldGroup({
 }) {
   const id = useId();
   return (
-    <div role="group" aria-labelledby={id}>
-      <span id={id} className="block text-sm font-medium text-slate-700">
-        {label}
-      </span>
-      <span className="block text-xs text-slate-500">{hint}</span>
+    <div role="radiogroup" aria-labelledby={id}>
+      <LabelText id={id} label={label} hint={hint} />
       <div className="mt-1.5">{children}</div>
     </div>
   );
@@ -62,11 +77,17 @@ function Fieldset({ legend, children }: { legend: string; children: ReactNode })
   );
 }
 
+/**
+ * A "fixed number of years" vs. "open-ended" choice. The years box keeps the
+ * user's raw text while typing and only commits whole numbers in range; on
+ * blur it snaps back to the last valid value.
+ */
 function TermChoice({
   name,
   type,
   years,
   fixedLabel,
+  yearsLabel,
   openLabel,
   onTypeChange,
   onYearsChange,
@@ -75,42 +96,63 @@ function TermChoice({
   type: TermType;
   years: number;
   fixedLabel: string;
+  yearsLabel: string;
   openLabel: string;
   onTypeChange: (type: TermType) => void;
   onYearsChange: (years: number) => void;
 }) {
+  const id = useId();
+  const [draft, setDraft] = useState<string | null>(null);
+  const invalid = draft !== null && parseYears(draft) === null;
+
   return (
     <div className="space-y-2 text-sm text-slate-700">
-      <label className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <input
+          id={`${id}-fixed`}
           type="radio"
           name={name}
           checked={type === "fixed"}
           onChange={() => onTypeChange("fixed")}
           className="accent-indigo-600"
         />
+        <label htmlFor={`${id}-fixed`}>{fixedLabel}</label>
         <input
           type="number"
-          min={1}
-          max={99}
-          value={years}
-          disabled={type !== "fixed"}
-          onChange={(e) => onYearsChange(Math.max(1, Number(e.target.value) || 1))}
-          aria-label={`${fixedLabel} (years)`}
-          className={`${inputClass} w-20 disabled:bg-slate-100 disabled:text-slate-400`}
+          inputMode="numeric"
+          min={MIN_YEARS}
+          max={MAX_YEARS}
+          step={1}
+          value={draft ?? years}
+          aria-label={yearsLabel}
+          aria-invalid={invalid || undefined}
+          onFocus={() => onTypeChange("fixed")}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const parsed = parseYears(e.target.value);
+            if (parsed !== null) onYearsChange(parsed);
+          }}
+          onBlur={() => setDraft(null)}
+          className={`${inputClass} w-20`}
         />
-        <span>{fixedLabel}</span>
-      </label>
-      <label className="flex items-center gap-2">
+        <span aria-hidden="true">year(s)</span>
+      </div>
+      {invalid && (
+        <p className="text-xs text-red-700">
+          Enter a whole number from {MIN_YEARS} to {MAX_YEARS}.
+        </p>
+      )}
+      <div className="flex items-center gap-2">
         <input
+          id={`${id}-open`}
           type="radio"
           name={name}
           checked={type === "open"}
           onChange={() => onTypeChange("open")}
           className="accent-indigo-600"
         />
-        <span>{openLabel}</span>
-      </label>
+        <label htmlFor={`${id}-open`}>{openLabel}</label>
+      </div>
     </div>
   );
 }
@@ -139,7 +181,7 @@ export default function NdaForm({ data, onChange }: NdaFormProps) {
   return (
     <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
       <Fieldset legend="Agreement terms">
-        <Field label="Purpose" hint="How Confidential Information may be used">
+        <Field label="Purpose" hint={COVER_HINTS.purpose}>
           <textarea
             rows={3}
             value={data.purpose}
@@ -150,17 +192,20 @@ export default function NdaForm({ data, onChange }: NdaFormProps) {
         <Field label="Effective date">
           <input
             type="date"
+            min="1900-01-01"
+            max="2999-12-31"
             value={data.effectiveDate}
             onChange={(e) => update("effectiveDate", e.target.value)}
             className={inputClass}
           />
         </Field>
-        <FieldGroup label="MNDA term" hint="The length of this MNDA">
+        <FieldGroup label="MNDA term" hint={COVER_HINTS.mndaTerm}>
           <TermChoice
             name="mndaTerm"
             type={data.mndaTermType}
             years={data.mndaTermYears}
-            fixedLabel="year(s) from Effective Date"
+            fixedLabel="Expires after"
+            yearsLabel="MNDA term in years"
             openLabel="Until terminated"
             onTypeChange={(t) => update("mndaTermType", t)}
             onYearsChange={(y) => update("mndaTermYears", y)}
@@ -168,13 +213,14 @@ export default function NdaForm({ data, onChange }: NdaFormProps) {
         </FieldGroup>
         <FieldGroup
           label="Term of confidentiality"
-          hint="How long Confidential Information is protected"
+          hint={COVER_HINTS.confidentiality}
         >
           <TermChoice
             name="confidentialityTerm"
             type={data.confidentialityType}
             years={data.confidentialityYears}
-            fixedLabel="year(s) from Effective Date"
+            fixedLabel="Protected for"
+            yearsLabel="Term of confidentiality in years"
             openLabel="In perpetuity"
             onTypeChange={(t) => update("confidentialityType", t)}
             onYearsChange={(y) => update("confidentialityYears", y)}
