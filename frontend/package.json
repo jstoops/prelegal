@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "gen:fonts": "node scripts/generate-font-manifest.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

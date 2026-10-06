@@ -5,16 +5,26 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import NdaCreator from "@/components/NdaCreator";
 import type { NdaData } from "@/lib/nda";
 import { loadNdaTemplate, type NdaTemplate } from "@/lib/nda-template";
+import type { PdfFont } from "@/lib/pdf-fonts";
+import { FontLoadError } from "@/lib/pdf-fonts/errors";
 import { TEMPLATES_DIR } from "../fixtures";
 
 // The real PDF pipeline is covered by NdaPdfDocument.test.tsx and the e2e
 // tests; here we only verify how NdaCreator drives it.
-const toBlob = vi.fn<() => Promise<Blob>>();
-const pdf = vi.fn<(element: ReactElement<{ data: NdaData }>) => { toBlob: typeof toBlob }>(
-  () => ({ toBlob }),
-);
+type PdfProps = { data: NdaData; fonts: string[] };
+// vi.mock factories are hoisted above imports, so their mocks must be too.
+const { toBlob, pdf, loadPdfFonts } = vi.hoisted(() => {
+  const toBlob = vi.fn<() => Promise<Blob>>();
+  return {
+    toBlob,
+    pdf: vi.fn<(element: ReactElement<PdfProps>) => { toBlob: typeof toBlob }>(() => ({ toBlob })),
+    loadPdfFonts: vi.fn<(fonts: PdfFont[]) => Promise<string[]>>(),
+  };
+});
 vi.mock("@react-pdf/renderer", () => ({ pdf }));
 vi.mock("@/components/NdaPdfDocument", () => ({ default: () => null }));
+// Real font planning; only downloading/registering fonts is stubbed.
+vi.mock("@/lib/pdf-fonts/load", () => ({ loadPdfFonts }));
 
 let template: NdaTemplate;
 beforeAll(async () => {
@@ -31,6 +41,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 5, 12, 0)); // Oct 5, 2026 local time
   toBlob.mockResolvedValue(new Blob(["%PDF-1.3"], { type: "application/pdf" }));
   pdf.mockClear();
+  loadPdfFonts.mockReset().mockImplementation(async (fonts) => fonts.map((f) => f.family));
   createObjectURL.mockClear();
   revokeObjectURL.mockClear();
   Object.assign(URL, { createObjectURL, revokeObjectURL });
@@ -55,6 +66,8 @@ const dateInput = () => screen.getByLabelText(/^Effective date/);
 const preview = () => within(screen.getByRole("region", { name: "NDA preview" }));
 const downloadButton = () => screen.getByRole("button", { name: /PDF/ });
 const lastPdfData = () => pdf.mock.lastCall![0].props.data;
+const lastPdfFonts = () => pdf.mock.lastCall![0].props.fonts;
+const party = (n: 1 | 2) => within(screen.getByRole("group", { name: `Party ${n}` }));
 
 describe("NdaCreator", () => {
   describe("layout", () => {
@@ -208,6 +221,127 @@ describe("NdaCreator", () => {
       await user.click(downloadButton());
       await waitFor(() => expect(clicked).toHaveLength(1));
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    });
+  });
+
+  describe("PDF fonts", () => {
+    it("uses only the Noto Serif latin piece for Latin text", async () => {
+      const user = renderCreator();
+      await user.type(party(1).getByLabelText(/^Company/), "Müller GmbH");
+      await user.click(downloadButton());
+      await waitFor(() => expect(pdf).toHaveBeenCalled());
+      expect(lastPdfFonts()).toEqual(["noto-serif-latin"]);
+    });
+
+    it("adds the font pieces needed by what the user typed", async () => {
+      const user = renderCreator();
+      await user.type(party(1).getByLabelText(/^Company/), "株式会社さくら");
+      await user.type(party(2).getByLabelText(/^Signer name/), "Иван Петров");
+      await user.click(downloadButton());
+      await waitFor(() => expect(pdf).toHaveBeenCalled());
+      const fonts = lastPdfFonts();
+      expect(fonts.slice(0, 2)).toEqual(["noto-serif-latin", "noto-serif-cyrillic"]);
+      expect(fonts.slice(2).length).toBeGreaterThan(0);
+      expect(fonts.slice(2).every((f) => f.startsWith("noto-sans-jp-"))).toBe(true);
+    });
+
+    it("loads the planned fonts before rendering, and renders with their stack", async () => {
+      const user = renderCreator();
+      await user.type(screen.getByLabelText(/^Governing law/), "Ζάκυνθος");
+      await user.click(downloadButton());
+      await waitFor(() => expect(pdf).toHaveBeenCalled());
+      const loaded = loadPdfFonts.mock.lastCall![0];
+      expect(loaded.map((f) => f.family)).toEqual(["noto-serif-latin", "noto-serif-greek"]);
+      expect(lastPdfFonts()).toEqual(["noto-serif-latin", "noto-serif-greek"]);
+      expect(loadPdfFonts.mock.invocationCallOrder[0]).toBeLessThan(pdf.mock.invocationCallOrder[0]);
+    });
+
+    it("turns tabs into spaces in the PDF only", async () => {
+      renderCreator();
+      fireEvent.change(screen.getByLabelText(/^Purpose/), {
+        target: { value: "Joint\tventure\nPhase two" },
+      });
+      fireEvent.change(party(2).getByLabelText(/^Company/), { target: { value: "Globex\tLLC" } });
+      await userEvent.setup().click(downloadButton());
+      await waitFor(() => expect(pdf).toHaveBeenCalled());
+      expect(lastPdfData().purpose).toBe("Joint venture\nPhase two");
+      expect(lastPdfData().parties[1].company).toBe("Globex LLC");
+      // The form keeps exactly what the user typed.
+      expect(screen.getByLabelText(/^Purpose/)).toHaveValue("Joint\tventure\nPhase two");
+    });
+
+    it("explains a font download failure separately from other errors", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      loadPdfFonts.mockRejectedValueOnce(new FontLoadError("https://cdn/x.woff", new Error("offline")));
+      const user = renderCreator();
+      await user.click(downloadButton());
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "Couldn't download the PDF fonts. Check your connection and try again.",
+      );
+      expect(pdf).not.toHaveBeenCalled();
+      expect(downloadButton()).toBeEnabled();
+    });
+  });
+
+  describe("unsupported characters warning", () => {
+    const WARNING = /won't appear in the PDF/;
+    const warning = () => screen.queryByText(WARNING);
+    const findWarning = () => screen.findByText(WARNING);
+
+    it("is hidden for supported scripts", async () => {
+      const user = renderCreator();
+      await user.type(party(1).getByLabelText(/^Company/), "Łukasz 株式会社 김민준 Έρευνα");
+      // Give the (async) check time to run.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(warning()).not.toBeInTheDocument();
+    });
+
+    it("lists characters that won't appear in the PDF", async () => {
+      const user = renderCreator();
+      await user.type(party(1).getByLabelText(/^Company/), "Acme שלום");
+      expect(await findWarning()).toHaveTextContent(
+        "These characters won't appear in the PDF: ש ל ו ם.",
+      );
+      expect(warning()).toHaveTextContent(/Supported scripts are Latin, Cyrillic, Greek/);
+    });
+
+    it("is announced to screen readers (inside a live region)", async () => {
+      const { container } = render(<NdaCreator template={template} />);
+      const region = container.querySelector('[aria-live="polite"]');
+      expect(region).toBeInTheDocument(); // mounted before any warning
+      fireEvent.change(party(1).getByLabelText(/^Company/), { target: { value: "שלום" } });
+      expect(region).toContainElement(await findWarning());
+    });
+
+    it("checks every free-text field", async () => {
+      renderCreator();
+      fireEvent.change(screen.getByLabelText(/^MNDA modifications/), { target: { value: "مرحبا" } });
+      expect(await findWarning()).toHaveTextContent("م ر ح ب ا");
+    });
+
+    it("summarizes long lists", async () => {
+      renderCreator();
+      fireEvent.change(screen.getByLabelText(/^Purpose/), {
+        target: { value: "אבגדהוזחטיכלמנסעפצקרשת" }, // 22 Hebrew letters
+      });
+      expect(await findWarning()).toHaveTextContent("א ב ג ד ה ו ז ח ט י כ ל and 10 more.");
+    });
+
+    it("disappears once the characters are removed", async () => {
+      renderCreator();
+      const company = party(1).getByLabelText(/^Company/);
+      fireEvent.change(company, { target: { value: "שלום" } });
+      expect(await findWarning()).toBeInTheDocument();
+      fireEvent.change(company, { target: { value: "Acme" } });
+      await waitFor(() => expect(warning()).not.toBeInTheDocument());
+    });
+
+    it("does not block the download", async () => {
+      const user = renderCreator();
+      await user.type(party(1).getByLabelText(/^Company/), "שלום");
+      await findWarning();
+      await user.click(downloadButton());
+      await waitFor(() => expect(clicked).toHaveLength(1));
     });
   });
 });

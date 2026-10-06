@@ -218,3 +218,25 @@ test.describe("responsive layout", () => {
     await expect(page.getByRole("button", { name: "Download PDF" })).toBeInViewport();
   });
 });
+
+test.describe("desktop layout", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("keeps the header in view and scrolls the form and preview independently", async ({ page }) => {
+    await page.goto("/");
+    // The page itself doesn't scroll; each panel does.
+    const pageScroll = await page.evaluate(
+      () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    );
+    expect(pageScroll).toBeLessThanOrEqual(0);
+
+    const previewPanel = preview(page);
+    await previewPanel.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect(previewPanel.getByText(/^11\. General\./)).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Download PDF" })).toBeInViewport();
+    await expect(page.getByLabel("Purpose")).toBeInViewport(); // form didn't move
+
+    await party(page, 2).getByLabel("Notice address").scrollIntoViewIfNeeded();
+    await expect(party(page, 2).getByLabel("Notice address")).toBeInViewport();
+  });
+});
