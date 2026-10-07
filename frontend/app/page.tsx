@@ -1,7 +1,13 @@
-import NdaCreator from "@/components/NdaCreator";
-import { loadNdaTemplate } from "@/lib/nda-template";
+import type { Metadata } from "next";
+import LoginForm from "@/components/LoginForm";
 
-export default async function Home() {
-  const template = await loadNdaTemplate();
-  return <NdaCreator template={template} />;
+// The root layout's title template only applies to nested routes.
+export const metadata: Metadata = { title: { absolute: "Sign in | Prelegal" } };
+
+export default function LoginPage() {
+  return (
+    <main className="flex flex-1 items-center justify-center px-4 py-12">
+      <LoginForm />
+    </main>
+  );
 }

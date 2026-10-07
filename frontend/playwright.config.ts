@@ -1,10 +1,11 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3100;
 
 /**
- * End-to-end tests run against a production build (`next build && next start`),
- * which most closely matches what users get.
+ * End-to-end tests run against what users get: the static frontend build
+ * served by the real FastAPI backend (which needs `uv` on the PATH).
  */
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -20,8 +21,13 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `npm run build && npm run start -- --port ${PORT}`,
-    url: `http://localhost:${PORT}`,
+    command: "npm run build && uv run --project ../backend prelegal-backend",
+    url: `http://localhost:${PORT}/api/health`,
+    env: {
+      PRELEGAL_PORT: String(PORT),
+      PRELEGAL_STATIC_DIR: path.resolve(__dirname, "out"),
+      PRELEGAL_DB_PATH: path.resolve(__dirname, "..", "backend", "data", "e2e.db"),
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },

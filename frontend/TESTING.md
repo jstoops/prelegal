@@ -1,4 +1,4 @@
-# Testing the Mutual NDA Creator
+# Testing the Prelegal frontend
 
 ## Automated tests
 
@@ -8,8 +8,9 @@ Run from `frontend/`:
 | --- | --- | --- |
 | `npm test` | Unit and component tests (Vitest + Testing Library, jsdom). | ~5 s |
 | `npm run test:watch` | The same, in watch mode. | |
-| `npm run test:e2e` | End-to-end tests in Chromium (Playwright) against a production build (`next build && next start` on port 3100). Run `npx playwright install chromium` once beforehand. | ~1 min |
+| `npm run test:e2e` | End-to-end tests in Chromium (Playwright) against what users get: the static build served by the real FastAPI backend (`npm run build`, then `uv run prelegal-backend` on port 3100). Needs [uv](https://docs.astral.sh/uv/) on the PATH, and `npx playwright install chromium` once beforehand. | ~1 min |
 | `npm run lint` / `npx tsc --noEmit` | Static checks. Test files are included. | |
+| `uv run pytest` (in `backend/`) | Backend tests: database reset, health check, API 404s, static file serving. | ~1 s |
 
 ### Coverage
 
@@ -21,17 +22,35 @@ Run from `frontend/`:
 | `tests/unit/NdaPreview.test.tsx` | Heading structure, all 11 standard terms, links (https, new tab), filled values, checkbox markers, party table, signature row height, placeholders, user input rendered as text and never as HTML. |
 | `tests/unit/NdaCreator.test.tsx` | Live preview, the effective date default and editing (no snap-back), the PDF download flow (data passed, filename, object URL lifecycle), the progress and busy state, error reporting and retry, and the status region. |
 | `tests/unit/NdaPdfDocument.test.tsx` | Renders the **real PDF** and extracts its text. Checks metadata, the cover page fitting on page 1, every value, option marks, the standard terms word-for-word, attributions, no hyphenation, placeholders, special characters, long text flowing to new pages (never clipped), and the signature table never splitting. |
-| `tests/e2e/nda-creator.spec.ts` | Real browser, production build. Checks: no console errors or hydration warnings; the date defaults to today in the browser's time zone; an axe-core WCAG 2.1 AA scan; the full form-to-preview flow; date clearing; years validation; links opening in a new tab; **actual PDF downloads**, which are parsed and checked; keyboard-only download; the PDF library loading only on demand; and the phone layout. |
+| `tests/unit/session.test.ts` | Fake session: signed out by default, sign in (email trimmed), sign out, subscribers updated, blocked storage doesn't break sign-in. |
+| `tests/unit/catalog.test.ts` | Catalog loader: the NDA's Cover Page and Standard Terms merge into one document, only the NDA links to a creator, and a missing NDA entry fails the build. Checks the real `catalog.json`. |
+| `tests/unit/LoginForm.test.tsx` | Labelled fields, any credentials sign in and go to `/app/`, Enter submits, both fields required. |
+| `tests/unit/AppHeader.test.tsx` | Banner with brand link to the dashboard, the signed-in email, and Sign out returning to `/`. |
+| `tests/unit/DocumentList.test.tsx` | Document cards, the Create link for available documents, and "Coming soon" without links for the rest. |
+| `tests/unit/fix-export-segments.test.ts` | The postbuild fix flattens nested segment folders (Windows) and leaves a correct export (Linux/macOS) untouched. |
+| `tests/e2e/platform.spec.ts` | Real browser against FastAPI. Health check (database reachable), JSON 404s for unknown API paths, the 404 page, sign-in (title, required fields, no console errors, axe scan), dashboard (11 documents, only the NDA creatable, axe scan), navigating to the NDA and back, sign out, trailing-slash redirects, and phone layouts with a long email. |
+| `tests/e2e/nda-creator.spec.ts` | Real browser, production build, at `/app/nda/`. Checks: no console errors or hydration warnings; the date defaults to today in the browser's time zone; an axe-core WCAG 2.1 AA scan; the full form-to-preview flow; date clearing; years validation; links opening in a new tab; **actual PDF downloads**, which are parsed and checked; keyboard-only download; the PDF library loading only on demand; and the phone layout. |
 
-Known gap: non-Latin scripts in the PDF are a `todo` test. They need an embedded Unicode font ([PL-4](https://johnstoops.atlassian.net/browse/PL-4)).
+Known gap: non-Latin scripts in the PDF are a `todo` test. They need an embedded Unicode font.
 
 ## Manual test plan
 
-Run this before a release, or after changing the layout, the PDF, or the templates. Use `npm run build && npm start`, or `npm run dev`. Tick each item in at least **Chrome, Firefox and Safari**. Automated tests cover only Chromium.
+Run this before a release, or after changing the layout, the PDF, or the templates. Use the Docker start script for your platform (see the root README) and open http://localhost:8000, or `npm run dev`. Tick each item in at least **Chrome, Firefox and Safari**. Automated tests cover only Chromium.
+
+### 0. Sign in and dashboard
+
+- [ ] `/` shows the Sign in screen. Submitting with an empty field shows the browser's "required" message.
+- [ ] Any email and password sign you in and open the dashboard at `/app/`, with your email in the header.
+- [ ] The dashboard lists 11 documents. Only Mutual Non-Disclosure Agreement has a **Create** button; the others say "Coming soon".
+- [ ] **Create** opens the Mutual NDA Creator at `/app/nda/`. Clicking **Prelegal** in the header returns to the dashboard.
+- [ ] **Sign out** returns to `/`, and the dashboard no longer shows your email.
+- [ ] An unknown URL (e.g. `/nope/`) shows "Page not found" with a link back to the documents.
+- [ ] http://localhost:8000/api/health returns `{"status":"ok","database":"ok"}`.
+- [ ] Stopping and starting the app again with the scripts works, and the start script reports it is running.
 
 ### 1. First load
 
-- [ ] The page loads with the form on the left and the NDA preview on the right (stacked on narrow screens).
+- [ ] The NDA creator (`/app/nda/`) loads with the form on the left and the NDA preview on the right (stacked on narrow screens).
 - [ ] Effective date shows **today's date**, and the preview shows it as e.g. "October 5, 2026".
 - [ ] The defaults show: the Purpose text, 1-year MNDA term, and 1-year confidentiality.
 - [ ] Blank fields show bracketed placeholders in the preview, e.g. "Governing Law: [Governing Law]".
@@ -66,7 +85,7 @@ Run this before a release, or after changing the layout, the PDF, or the templat
   - [ ] It prints cleanly on US Letter paper.
 - [ ] A very long Purpose (several paragraphs) flows onto extra pages and none of it is cut off.
 - [ ] Downloading twice in a row works and produces two files.
-- [ ] **Known limitation:** names in Chinese, Japanese, Cyrillic or Greek show correctly in the preview but not in the PDF. This is tracked as [PL-4](https://johnstoops.atlassian.net/browse/PL-4), so confirm it is still the case and don't report it as a new bug.
+- [ ] **Known limitation:** names in Chinese, Japanese, Cyrillic or Greek show correctly in the preview but not in the PDF. Confirm it is still the case and don't report it as a new bug.
 
 ### 4. Accessibility
 
@@ -80,7 +99,7 @@ Run this before a release, or after changing the layout, the PDF, or the templat
 
 ### 5. Responsive layout
 
-- [ ] At phone width (about 390 px) the form sits above the preview, the page has no horizontal scrolling, and the Download PDF button stays visible in the header.
+- [ ] At phone width (about 390 px) the form sits above the preview, the page has no horizontal scrolling, and the Download PDF button stays visible in the toolbar.
 - [ ] At tablet width (about 768 px) the layout is usable.
 - [ ] On desktop the form scrolls independently of the preview.
 

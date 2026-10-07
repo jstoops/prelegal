@@ -1,0 +1,16 @@
+# Keep the build context small and free of secrets and local build output.
+.git
+.env
+.env.*
+.claude
+**/node_modules
+**/__pycache__
+frontend/.next
+frontend/out
+frontend/test-results
+frontend/playwright-report
+frontend/tsconfig.tsbuildinfo
+backend/.venv
+backend/data
+backend/.pytest_cache
+scripts
