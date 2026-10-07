@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "next build && node scripts/fix-export-segments.mjs",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -5,6 +5,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * Prelegal color scheme. White on Orange Primary (#bd5d38) is 4.4:1, just
+ * under WCAG AA for normal text, so primary buttons rest on the darker
+ * hover shade; Orange Primary is used for accents, borders and focus rings.
+ */
+@theme {
+  --color-brand: #bd5d38;
+  --color-brand-strong: #9f4e2f;
+  --color-brand-stronger: #85412a;
+  --color-raven: #6c757d;
+  --color-raven-hover: #5a6268;
+  --color-heading: #343a40;
+}
+
 body {
   background: var(--color-slate-50);
   color: var(--color-slate-900);

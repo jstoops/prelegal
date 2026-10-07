@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
+import { inputClass } from "@/lib/styles";
 import {
   COVER_HINTS,
   MAX_YEARS,
@@ -15,9 +16,6 @@ interface NdaFormProps {
   data: NdaData;
   onChange: (data: NdaData) => void;
 }
-
-const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-500 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600 aria-invalid:border-red-600";
 
 function LabelText({ label, hint, id }: { label: string; hint?: string; id?: string }) {
   return (
@@ -114,7 +112,7 @@ function TermChoice({
           name={name}
           checked={type === "fixed"}
           onChange={() => onTypeChange("fixed")}
-          className="accent-indigo-600"
+          className="accent-brand"
         />
         <label htmlFor={`${id}-fixed`}>{fixedLabel}</label>
         <input
@@ -149,7 +147,7 @@ function TermChoice({
           name={name}
           checked={type === "open"}
           onChange={() => onTypeChange("open")}
-          className="accent-indigo-600"
+          className="accent-brand"
         />
         <label htmlFor={`${id}-open`}>{openLabel}</label>
       </div>

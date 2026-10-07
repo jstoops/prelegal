@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { extractText, getDocumentProxy } from "unpdf";
 
+const NDA_PATH = "/app/nda/";
 const FIXED_NOW = new Date("2026-10-05T15:00:00-04:00"); // Oct 5, 2026 in New York
 
 test.beforeEach(async ({ page }) => {
@@ -56,7 +57,7 @@ test.describe("page load", () => {
     });
     page.on("pageerror", (err) => problems.push(err.message));
 
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await expect(page).toHaveTitle("Mutual NDA Creator | Prelegal");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mutual NDA Creator");
     await expect(preview(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
@@ -65,13 +66,13 @@ test.describe("page load", () => {
   });
 
   test("defaults the effective date to today in the browser's time zone", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await expect(page.getByLabel("Effective date")).toHaveValue("2026-10-05");
     await expect(preview(page).getByText("October 5, 2026")).toBeVisible();
   });
 
   test("passes an automated accessibility scan (WCAG 2.1 AA)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
@@ -81,7 +82,7 @@ test.describe("page load", () => {
 
 test.describe("form and live preview", () => {
   test("reflects every field in the preview", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await fillForm(page);
     const doc = preview(page);
     await expect(doc.getByText("Exploring a joint go-to-market partnership.")).toBeVisible();
@@ -97,7 +98,7 @@ test.describe("form and live preview", () => {
   });
 
   test("lets the user clear the effective date without it snapping back", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     const date = page.getByLabel("Effective date");
     await date.fill("");
     await expect(date).toHaveValue("");
@@ -107,7 +108,7 @@ test.describe("form and live preview", () => {
   });
 
   test("validates the years input as the user types", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     const years = page.getByLabel("MNDA term in years");
     await years.fill("");
     await years.pressSequentially("12");
@@ -124,14 +125,14 @@ test.describe("form and live preview", () => {
   });
 
   test("selects the fixed term when the years box is clicked", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await page.getByLabel("In perpetuity").check();
     await page.getByLabel("Term of confidentiality in years").click();
     await expect(page.getByLabel("Protected for")).toBeChecked();
   });
 
   test("opens Common Paper links in a new tab", async ({ page, context }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     const link = preview(page).getByRole("link", { name: "commonpaper.com/standards/mutual-nda/1.0" });
     await expect(link).toHaveAttribute("href", "https://commonpaper.com/standards/mutual-nda/1.0");
     await context.route("https://commonpaper.com/**", (route) => route.fulfill({ body: "ok" }));
@@ -143,7 +144,7 @@ test.describe("form and live preview", () => {
 
 test.describe("PDF download", () => {
   test("downloads the completed agreement as a PDF", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await fillForm(page);
     const { download, text, pages } = await downloadPdf(page);
 
@@ -170,7 +171,7 @@ test.describe("PDF download", () => {
   });
 
   test("downloads a blank-form PDF with placeholders and a generic name", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await page.getByLabel("Effective date").fill("");
     const { download, text } = await downloadPdf(page);
     expect(download.suggestedFilename()).toBe("Mutual-NDA.pdf");
@@ -179,7 +180,7 @@ test.describe("PDF download", () => {
   });
 
   test("works with the keyboard alone", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await page.getByLabel("Governing law").fill("Delaware");
     const button = page.getByRole("button", { name: "Download PDF" });
     await button.focus();
@@ -195,7 +196,7 @@ test.describe("PDF download", () => {
         pdfChunks.push(res.url());
       }
     });
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     await page.waitForLoadState("networkidle");
     expect(pdfChunks).toEqual([]);
     await downloadPdf(page);
@@ -207,7 +208,7 @@ test.describe("responsive layout", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("stacks the form above the preview on phones with no horizontal scroll", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(NDA_PATH);
     const formBox = await page.getByLabel("Purpose").boundingBox();
     const previewBox = await preview(page).boundingBox();
     expect(formBox!.y).toBeLessThan(previewBox!.y);

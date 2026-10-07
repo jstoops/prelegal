@@ -5,6 +5,7 @@ import NdaForm from "@/components/NdaForm";
 import NdaPreview from "@/components/NdaPreview";
 import { defaultNdaData, pdfFileName, todayIso, type NdaData } from "@/lib/nda";
 import type { NdaTemplate } from "@/lib/nda-template";
+import { primaryButtonClass } from "@/lib/styles";
 
 const subscribeNever = () => () => {};
 
@@ -59,16 +60,10 @@ export default function NdaCreator({ template }: { template: NdaTemplate }) {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+      {/* Toolbar under the app header, so the download button stays in reach. */}
+      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-              Prelegal
-            </p>
-            <h1 className="text-lg font-semibold text-slate-900">
-              Mutual NDA Creator
-            </h1>
-          </div>
+          <h1 className="text-lg font-semibold text-heading">Mutual NDA Creator</h1>
           <div className="flex items-center gap-3">
             {/* Always mounted so screen readers reliably announce changes. */}
             <p
@@ -82,13 +77,13 @@ export default function NdaCreator({ template }: { template: NdaTemplate }) {
               onClick={handleDownload}
               disabled={status === "generating"}
               aria-busy={status === "generating"}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-wait disabled:opacity-70"
+              className={`${primaryButtonClass} disabled:cursor-wait disabled:opacity-70`}
             >
               {status === "generating" ? "Preparing PDF…" : "Download PDF"}
             </button>
           </div>
         </div>
-      </header>
+      </div>
 
       <main className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
         <aside className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-2">

@@ -16,7 +16,7 @@ function InlineText({ content }: { content: Inline[] }) {
         return <strong key={i}>{part.text}</strong>;
       case "term":
         return (
-          <span key={i} className="font-semibold text-indigo-800">
+          <span key={i} className="font-semibold text-brand-strong">
             {part.text}
           </span>
         );

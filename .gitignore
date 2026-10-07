@@ -103,3 +103,6 @@ desktop.ini
 # Claude Code (personal settings)
 # =========================
 .claude/settings.local.json
+
+# Prelegal backend runtime data (recreated on start)
+backend/data/
