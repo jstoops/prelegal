@@ -3,8 +3,8 @@
 # --- Frontend: build static files into /build/frontend/out ---
 FROM node:24-slim AS frontend
 WORKDIR /build
-# The build reads the templates and catalog from the repo root (../ from frontend/).
-COPY catalog.json ./
+# The build reads the templates and document definitions from the repo root (../ from frontend/).
+COPY documents.json ./
 COPY templates/ templates/
 COPY frontend/package.json frontend/package-lock.json frontend/
 RUN cd frontend && npm ci
@@ -20,6 +20,8 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-install-project
 COPY backend/src/ src/
 RUN uv sync --frozen --no-editable
+# The document definitions the AI chat fills in (shared with the frontend).
+COPY documents.json /app/documents.json
 COPY --from=frontend /build/frontend/out /app/static
 
 RUN useradd --system --no-create-home prelegal && mkdir /app/data && chown prelegal /app/data
@@ -29,7 +31,7 @@ ENV PATH="/app/backend/.venv/bin:$PATH" \
     PRELEGAL_HOST=0.0.0.0 \
     PRELEGAL_PORT=8000 \
     PRELEGAL_STATIC_DIR=/app/static \
-    PRELEGAL_DB_PATH=/app/data/prelegal.db
+    PRELEGAL_DB_PATH=/app/data/prelegal.db     PRELEGAL_DOCUMENTS_FILE=/app/documents.json
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]

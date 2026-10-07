@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   coverPageSections,
-  defaultNdaData,
+  creatorHref,
+  defaultDocumentData,
+  defaultValue,
+  emptyDocumentData,
   formatDate,
-  orPlaceholder,
+  partyHeadings,
   partyRows,
   pdfFileName,
   todayIso,
+  withDefaultDates,
   type CoverSection,
-} from "@/lib/nda";
-import { filledNdaData } from "../fixtures";
+} from "@/lib/document";
+import { DOCUMENTS, definition, documentData, filledNdaData, NDA } from "../fixtures";
 
 const section = (sections: CoverSection[], heading: string) => {
   const found = sections.find((s) => s.heading === heading);
@@ -17,26 +21,73 @@ const section = (sections: CoverSection[], heading: string) => {
   return found;
 };
 
-describe("defaultNdaData", () => {
-  it("mirrors the template's suggested defaults", () => {
-    const data = defaultNdaData();
-    expect(data.purpose).toBe(
-      "Evaluating whether to enter into a business relationship with the other party.",
-    );
-    expect(data.mndaTermType).toBe("fixed");
-    expect(data.mndaTermYears).toBe(1);
-    expect(data.confidentialityType).toBe("fixed");
-    expect(data.confidentialityYears).toBe(1);
-    expect(data.effectiveDate).toBe("");
-    expect(data.parties).toHaveLength(2);
+const ndaSections = (fields = {}) => coverPageSections(NDA, filledNdaData(fields));
+
+describe("defaultDocumentData", () => {
+  it("starts the NDA from the template's suggested defaults", () => {
+    const { documentId, fields, parties } = defaultDocumentData(NDA);
+    expect(documentId).toBe("mutual-nda");
+    expect(fields).toEqual({
+      purpose: "Evaluating whether to enter into a business relationship with the other party.",
+      effectiveDate: "",
+      mndaTermType: "fixed",
+      mndaTermYears: 1,
+      confidentialityType: "fixed",
+      confidentialityYears: 1,
+      governingLaw: "",
+      jurisdiction: "",
+      modifications: "",
+    });
+    expect(parties).toHaveLength(2);
   });
 
   it("returns independent objects on each call", () => {
-    const a = defaultNdaData();
-    const b = defaultNdaData();
+    const a = defaultDocumentData(NDA);
+    const b = defaultDocumentData(NDA);
     a.parties[0].company = "Mutated";
+    a.fields.purpose = "Mutated";
     expect(b.parties[0].company).toBe("");
+    expect(b.fields.purpose).not.toBe("Mutated");
     expect(a.parties[0]).not.toBe(a.parties[1]);
+  });
+
+  it("gives every field of every document a default", () => {
+    for (const doc of DOCUMENTS) {
+      const { fields } = defaultDocumentData(doc);
+      expect(Object.keys(fields)).toEqual(doc.fields.map((f) => f.key));
+    }
+  });
+});
+
+describe("defaultValue", () => {
+  it("uses the field's default, or blank", () => {
+    const base = { key: "k", label: "K", guidance: "" };
+    expect(defaultValue({ ...base, kind: "years", default: 2 })).toBe(2);
+    expect(defaultValue({ ...base, kind: "text" })).toBe("");
+    expect(defaultValue({ ...base, kind: "text", default: "x" })).toBe("x");
+  });
+
+  it("has an explicit default for every years and choice field (the backend checks too)", () => {
+    for (const field of DOCUMENTS.flatMap((d) => d.fields)) {
+      if (field.kind === "years" || field.kind === "choice") expect(field.default, field.key).toBeDefined();
+    }
+  });
+});
+
+describe("emptyDocumentData", () => {
+  it("has no document or fields yet", () => {
+    expect(emptyDocumentData()).toMatchObject({ documentId: null, fields: {} });
+  });
+});
+
+describe("withDefaultDates", () => {
+  it("shows blank dates as today and keeps set ones", () => {
+    const csa = definition("cloud-service-agreement");
+    const data = documentData(csa, { orderDate: "2027-01-15" });
+    const shown = withDefaultDates(csa, data, "2026-10-05");
+    expect(shown.fields.effectiveDate).toBe("2026-10-05");
+    expect(shown.fields.orderDate).toBe("2027-01-15");
+    expect(data.fields.effectiveDate).toBe(""); // not mutated
   });
 });
 
@@ -72,23 +123,16 @@ describe("formatDate", () => {
   );
 });
 
-describe("orPlaceholder", () => {
-  it("returns the value when present", () => {
-    expect(orPlaceholder("Delaware", "Governing Law")).toBe("Delaware");
-  });
-
-  it("trims surrounding whitespace", () => {
-    expect(orPlaceholder("  Delaware ", "Governing Law")).toBe("Delaware");
-  });
-
-  it.each(["", "   ", "\n\t"])("returns a bracketed placeholder for %j", (value) => {
-    expect(orPlaceholder(value, "Governing Law")).toBe("[Governing Law]");
+describe("creatorHref", () => {
+  it("preselects a document, or leaves the choice to the chat", () => {
+    expect(creatorHref("mutual-nda")).toBe("/app/create/?doc=mutual-nda");
+    expect(creatorHref()).toBe("/app/create/");
   });
 });
 
 describe("coverPageSections", () => {
-  it("lists the cover page sections in template order", () => {
-    expect(coverPageSections(filledNdaData()).map((s) => s.heading)).toEqual([
+  it("lists the NDA cover page sections in template order", () => {
+    expect(ndaSections().map((s) => s.heading)).toEqual([
       "Purpose",
       "Effective Date",
       "MNDA Term",
@@ -99,10 +143,8 @@ describe("coverPageSections", () => {
   });
 
   it("fills in the user's values", () => {
-    const sections = coverPageSections(filledNdaData());
-    expect(section(sections, "Purpose").lines).toEqual([
-      "Exploring a joint go-to-market partnership.",
-    ]);
+    const sections = ndaSections();
+    expect(section(sections, "Purpose").lines).toEqual(["Exploring a joint go-to-market partnership."]);
     expect(section(sections, "Effective Date").lines).toEqual(["October 5, 2026"]);
     expect(section(sections, "Governing Law & Jurisdiction").lines).toEqual([
       "Governing Law: Delaware",
@@ -113,67 +155,78 @@ describe("coverPageSections", () => {
     ]);
   });
 
-  it("uses placeholders for blank fields and 'None.' for no modifications", () => {
-    const sections = coverPageSections(defaultNdaData());
+  it("uses placeholders for blank required fields and empty text for optional ones", () => {
+    const sections = coverPageSections(NDA, defaultDocumentData(NDA));
     expect(section(sections, "Effective Date").lines).toEqual(["[Effective Date]"]);
     expect(section(sections, "Governing Law & Jurisdiction").lines).toEqual([
       "Governing Law: [Governing Law]",
       "Jurisdiction: [Jurisdiction]",
     ]);
     expect(section(sections, "MNDA Modifications").lines).toEqual(["None."]);
-    const blankPurpose = coverPageSections({ ...defaultNdaData(), purpose: " " });
-    expect(section(blankPurpose, "Purpose").lines).toEqual(["[Purpose]"]);
+    expect(section(ndaSections({ purpose: " " }), "Purpose").lines).toEqual(["[Purpose]"]);
   });
 
   it("checks exactly one MNDA term option, with singular/plural years", () => {
-    const fixedOne = section(
-      coverPageSections(filledNdaData({ mndaTermYears: 1 })),
-      "MNDA Term",
-    ).options!;
+    const fixedOne = section(ndaSections({ mndaTermYears: 1 }), "MNDA Term").options!;
     expect(fixedOne.map((o) => o.checked)).toEqual([true, false]);
     expect(fixedOne[0].text).toBe("Expires 1 year from Effective Date.");
 
-    const fixedMany = section(
-      coverPageSections(filledNdaData({ mndaTermYears: 5 })),
-      "MNDA Term",
-    ).options!;
+    const fixedMany = section(ndaSections({ mndaTermYears: 5 }), "MNDA Term").options!;
     expect(fixedMany[0].text).toBe("Expires 5 years from Effective Date.");
 
-    const open = section(
-      coverPageSections(filledNdaData({ mndaTermType: "open" })),
-      "MNDA Term",
-    ).options!;
+    const open = section(ndaSections({ mndaTermType: "open" }), "MNDA Term").options!;
     expect(open.map((o) => o.checked)).toEqual([false, true]);
-    expect(open[1].text).toBe(
-      "Continues until terminated in accordance with the terms of the MNDA.",
-    );
+    expect(open[1].text).toBe("Continues until terminated in accordance with the terms of the MNDA.");
   });
 
   it("checks exactly one confidentiality option", () => {
-    const fixed = section(
-      coverPageSections(filledNdaData({ confidentialityYears: 3 })),
-      "Term of Confidentiality",
-    ).options!;
+    const fixed = section(ndaSections({ confidentialityYears: 3 }), "Term of Confidentiality").options!;
     expect(fixed.map((o) => o.checked)).toEqual([true, false]);
     expect(fixed[0].text).toMatch(/^3 years from Effective Date, but in the case of trade secrets/);
 
-    const perpetual = section(
-      coverPageSections(filledNdaData({ confidentialityType: "open" })),
-      "Term of Confidentiality",
-    ).options!;
+    const perpetual = section(ndaSections({ confidentialityType: "open" }), "Term of Confidentiality")
+      .options!;
     expect(perpetual.map((o) => o.checked)).toEqual([false, true]);
     expect(perpetual[1].text).toBe("In perpetuity.");
   });
 
-  it("includes the template's helper labels", () => {
-    const sections = coverPageSections(filledNdaData());
-    expect(section(sections, "Purpose").label).toBe(
-      "How Confidential Information may be used",
-    );
+  it("includes the fields' helper labels", () => {
+    const sections = ndaSections();
+    expect(section(sections, "Purpose").label).toBe("How Confidential Information may be used");
     expect(section(sections, "MNDA Term").label).toBe("The length of this MNDA");
     expect(section(sections, "Term of Confidentiality").label).toBe(
       "How long Confidential Information is protected",
     );
+  });
+
+  it("shows other documents' fields, defaults and placeholders", () => {
+    const csa = definition("cloud-service-agreement");
+    const sections = coverPageSections(csa, documentData(csa, { fees: "$1,000 per month" }));
+    expect(section(sections, "Fees").lines).toEqual(["$1,000 per month"]);
+    expect(section(sections, "Subscription Period").lines).toEqual(["1 year"]);
+    expect(section(sections, "Cloud Service").lines).toEqual(["[Cloud Service]"]);
+    expect(section(sections, "DPA").lines).toEqual(["None."]);
+    expect(section(sections, "Governing Law & Chosen Courts").lines).toEqual([
+      "Governing Law: [Governing Law]",
+      "Chosen Courts: [Chosen Courts]",
+    ]);
+  });
+
+  it("gives every document a section per field (or shared section)", () => {
+    for (const doc of DOCUMENTS) {
+      const headings = coverPageSections(doc, defaultDocumentData(doc)).map((s) => s.heading);
+      expect(new Set(headings).size).toBe(headings.length);
+      for (const field of doc.fields) {
+        if (field.kind !== "years") expect(headings).toContain(field.section ?? field.label);
+      }
+    }
+  });
+});
+
+describe("partyHeadings", () => {
+  it("uses the document's party roles", () => {
+    expect(partyHeadings(NDA)).toEqual(["PARTY 1", "PARTY 2"]);
+    expect(partyHeadings(definition("partnership-agreement"))).toEqual(["COMPANY", "PARTNER"]);
   });
 });
 
@@ -216,16 +269,20 @@ describe("partyRows", () => {
 });
 
 describe("pdfFileName", () => {
-  const withCompanies = (a: string, b: string) => {
+  const withCompanies = (a: string, b: string, doc = NDA) => {
     const data = filledNdaData();
     data.parties[0].company = a;
     data.parties[1].company = b;
-    return pdfFileName(data);
+    return pdfFileName(doc, data);
   };
 
   it("includes both company names as slugs", () => {
-    expect(withCompanies("Acme, Inc.", "Globex LLC")).toBe(
-      "Mutual-NDA-Acme-Inc-Globex-LLC.pdf",
+    expect(withCompanies("Acme, Inc.", "Globex LLC")).toBe("Mutual-NDA-Acme-Inc-Globex-LLC.pdf");
+  });
+
+  it("starts with the document's file slug", () => {
+    expect(withCompanies("Acme", "Globex", definition("cloud-service-agreement"))).toBe(
+      "Cloud-Service-Agreement-Acme-Globex.pdf",
     );
   });
 

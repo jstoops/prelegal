@@ -1,59 +1,45 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { catalogDocuments, loadCatalog } from "@/lib/catalog";
+import { loadCreatorDocuments, loadDocuments } from "@/lib/catalog";
+import { REPO_ROOT } from "../fixtures";
 
-/** The repo's real catalog (tests run from frontend/). */
-const CATALOG_FILE = path.resolve(__dirname, "..", "..", "..", "catalog.json");
+const plain = (content: { text: string }[]) => content.map((p) => p.text).join("");
 
-const entry = (name: string, description = `${name} terms.`) => ({
-  name,
-  description,
-  filename: `templates/${name}.md`,
-});
-
-describe("catalogDocuments", () => {
-  it("merges a document's Cover Page and Standard Terms into one entry", () => {
-    const docs = catalogDocuments([
-      entry("Mutual Non-Disclosure Agreement - Cover Page", "Cover page."),
-      entry("Mutual Non-Disclosure Agreement - Standard Terms", "How parties share secrets."),
-      entry("Pilot Agreement"),
-    ]);
-    expect(docs).toEqual([
-      {
-        name: "Mutual Non-Disclosure Agreement",
-        description: "How parties share secrets.",
-        href: "/app/nda/",
-      },
-      { name: "Pilot Agreement", description: "Pilot Agreement terms.", href: undefined },
-    ]);
-  });
-
-  it("keeps the Standard Terms description whichever part comes first", () => {
-    const docs = catalogDocuments([
-      entry("Mutual Non-Disclosure Agreement - Standard Terms", "How parties share secrets."),
-      entry("Mutual Non-Disclosure Agreement - Cover Page", "Cover page."),
-    ]);
-    expect(docs).toHaveLength(1);
-    expect(docs[0].description).toBe("How parties share secrets.");
-  });
-
-  it("fails loudly if a document with a creator is missing from the catalog", () => {
-    expect(() => catalogDocuments([entry("Pilot Agreement")])).toThrow(
-      /no entry for "Mutual Non-Disclosure Agreement"/,
-    );
-  });
-});
-
-describe("loadCatalog", () => {
-  it("loads the repo's catalog: the Mutual NDA is creatable, the rest are coming soon", async () => {
-    const docs = await loadCatalog(CATALOG_FILE);
-    expect(docs[0]).toMatchObject({ name: "Mutual Non-Disclosure Agreement", href: "/app/nda/" });
-    expect(docs.filter((d) => d.href)).toHaveLength(1);
+describe("loadDocuments", () => {
+  it("loads every document users can draft, starting with the Mutual NDA", async () => {
+    const docs = await loadDocuments(REPO_ROOT);
+    expect(docs[0]).toMatchObject({ id: "mutual-nda", name: "Mutual Non-Disclosure Agreement" });
     expect(docs.map((d) => d.name)).toContain("Cloud Service Agreement");
-    expect(docs.some((d) => / - (Cover Page|Standard Terms)$/.test(d.name))).toBe(false);
-    // Every catalog entry is accounted for (the two NDA parts become one).
-    const { templates } = JSON.parse(await readFile(CATALOG_FILE, "utf8"));
-    expect(docs).toHaveLength(templates.length - 1);
+    expect(new Set(docs.map((d) => d.id)).size).toBe(docs.length);
+  });
+
+  it("covers every template in catalog.json", async () => {
+    const docs = await loadDocuments(REPO_ROOT);
+    const { templates } = JSON.parse(await readFile(path.join(REPO_ROOT, "catalog.json"), "utf8"));
+    // The NDA's cover page is defined in documents.json, not parsed from its template.
+    const files = templates
+      .map((t: { filename: string }) => t.filename)
+      .filter((f: string) => f !== "templates/Mutual-NDA-coverpage.md");
+    expect(docs.map((d) => d.standardTerms).sort()).toEqual(files.sort());
+  });
+});
+
+describe("loadCreatorDocuments", () => {
+  it("parses each document's intro, attribution and Standard Terms", async () => {
+    const docs = await loadCreatorDocuments(REPO_ROOT);
+    expect(docs).toHaveLength((await loadDocuments(REPO_ROOT)).length);
+    for (const doc of docs) {
+      expect(plain(doc.intro)).toMatch(/consists of/);
+      expect(plain(doc.attribution)).toMatch(/^Common Paper .* free to use under CC BY 4\.0\.$/);
+      expect(doc.terms.clauses.length).toBeGreaterThan(2);
+    }
+    const nda = docs[0];
+    expect(nda.intro.find((p) => p.kind === "link")).toEqual({
+      kind: "link",
+      text: "commonpaper.com/standards/mutual-nda/1.0",
+      href: "https://commonpaper.com/standards/mutual-nda/1.0",
+    });
+    expect(nda.terms.clauses).toHaveLength(11);
   });
 });

@@ -14,6 +14,8 @@ class Settings:
     db_path: Path
     # Not served if missing, e.g. before the first `npm run build`.
     static_dir: Path
+    # The documents users can draft (documents.json, shared with the frontend).
+    documents_file: Path = REPO_ROOT / "documents.json"
     # Without it the AI chat answers 503.
     openrouter_api_key: str | None = None
 
@@ -28,6 +30,9 @@ class Settings:
             ),
             static_dir=Path(
                 os.environ.get("PRELEGAL_STATIC_DIR", REPO_ROOT / "frontend" / "out")
+            ),
+            documents_file=Path(
+                os.environ.get("PRELEGAL_DOCUMENTS_FILE", REPO_ROOT / "documents.json")
             ),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
         )

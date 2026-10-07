@@ -1,26 +1,26 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
-import NdaPreview from "@/components/NdaPreview";
-import { defaultNdaData, type NdaData } from "@/lib/nda";
-import { loadNdaTemplate, type NdaTemplate } from "@/lib/nda-template";
-import { filledNdaData, TEMPLATES_DIR } from "../fixtures";
+import DocumentPreview from "@/components/DocumentPreview";
+import type { CreatorDocument } from "@/lib/catalog";
+import { defaultDocumentData, type DocumentData } from "@/lib/document";
+import { creatorDocuments, FILLED_PARTIES, filledNdaData } from "../fixtures";
 
-let template: NdaTemplate;
+let documents: CreatorDocument[];
 beforeAll(async () => {
-  template = await loadNdaTemplate(TEMPLATES_DIR);
+  documents = await creatorDocuments();
 });
+const doc = (id: string) => documents.find((d) => d.definition.id === id)!;
 
-const renderPreview = (data: NdaData = filledNdaData()) =>
-  render(<NdaPreview data={data} template={template} />);
+const renderPreview = (data: DocumentData = filledNdaData(), id = data.documentId!) =>
+  render(<DocumentPreview document={doc(id)} data={data} />);
 
 /** The cover-page section whose heading is `heading`. */
 const coverSection = (heading: string) =>
   within(screen.getByRole("heading", { level: 3, name: heading }).closest("section")!);
 
-const tableRow = (label: RegExp) =>
-  screen.getByRole("rowheader", { name: label }).closest("tr")!;
+const tableRow = (label: RegExp) => screen.getByRole("rowheader", { name: label }).closest("tr")!;
 
-describe("NdaPreview", () => {
+describe("DocumentPreview", () => {
   describe("structure", () => {
     it("titles the document without competing with the page's h1", () => {
       renderPreview();
@@ -80,8 +80,9 @@ describe("NdaPreview", () => {
       renderPreview();
       expect(coverSection("Purpose").getByText("Exploring a joint go-to-market partnership.")).toBeInTheDocument();
       expect(coverSection("Effective Date").getByText("October 5, 2026")).toBeInTheDocument();
-      expect(coverSection("Governing Law & Jurisdiction").getByText("Governing Law: Delaware")).toBeInTheDocument();
-      expect(coverSection("Governing Law & Jurisdiction").getByText("Jurisdiction: New Castle, DE")).toBeInTheDocument();
+      const law = coverSection("Governing Law & Jurisdiction");
+      expect(law.getByText("Governing Law: Delaware")).toBeInTheDocument();
+      expect(law.getByText("Jurisdiction: New Castle, DE")).toBeInTheDocument();
     });
 
     it("preserves line breaks in multi-line text", () => {
@@ -107,8 +108,7 @@ describe("NdaPreview", () => {
         "PARTY 1",
         "PARTY 2",
       ]);
-      const cells = (label: RegExp) =>
-        within(tableRow(label)).getAllByRole("cell").map((c) => c.textContent);
+      const cells = (label: RegExp) => within(tableRow(label)).getAllByRole("cell").map((c) => c.textContent);
       expect(cells(/^Print Name/)).toEqual(["Jane Doe", "John Roe"]);
       expect(cells(/^Title/)).toEqual(["CEO", "CTO"]);
       expect(cells(/^Company/)).toEqual(["Acme, Inc.", "Globex LLC"]);
@@ -136,17 +136,62 @@ describe("NdaPreview", () => {
 
   describe("blank form", () => {
     it("shows bracketed placeholders for missing terms", () => {
-      renderPreview(defaultNdaData());
+      renderPreview(defaultDocumentData(doc("mutual-nda").definition));
       expect(coverSection("Effective Date").getByText("[Effective Date]")).toBeInTheDocument();
-      expect(coverSection("Governing Law & Jurisdiction").getByText("Governing Law: [Governing Law]")).toBeInTheDocument();
-      expect(coverSection("Governing Law & Jurisdiction").getByText("Jurisdiction: [Jurisdiction]")).toBeInTheDocument();
+      const law = coverSection("Governing Law & Jurisdiction");
+      expect(law.getByText("Governing Law: [Governing Law]")).toBeInTheDocument();
+      expect(law.getByText("Jurisdiction: [Jurisdiction]")).toBeInTheDocument();
       expect(coverSection("MNDA Modifications").getByText("None.")).toBeInTheDocument();
     });
 
     it("still renders the default purpose and 1-year terms", () => {
-      renderPreview(defaultNdaData());
+      renderPreview(defaultDocumentData(doc("mutual-nda").definition));
       expect(coverSection("Purpose").getByText(/Evaluating whether to enter/)).toBeInTheDocument();
       expect(coverSection("MNDA Term").getByText("Expires 1 year from Effective Date.")).toBeInTheDocument();
+    });
+  });
+
+  describe("other documents", () => {
+    const csa = () => {
+      const data = defaultDocumentData(doc("cloud-service-agreement").definition);
+      return { ...data, fields: { ...data.fields, fees: "$1,000 per month" }, parties: FILLED_PARTIES };
+    };
+
+    it("titles the cover page and labels the parties by role", () => {
+      renderPreview(csa());
+      expect(screen.getByRole("heading", { level: 2, name: "Cloud Service Agreement" })).toBeInTheDocument();
+      expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["PROVIDER", "CUSTOMER"]);
+      expect(screen.getByText(/each party agrees to enter into this Agreement/)).toBeInTheDocument();
+    });
+
+    it("shows the document's own fields and defaults", () => {
+      renderPreview(csa());
+      expect(coverSection("Fees").getByText("$1,000 per month")).toBeInTheDocument();
+      expect(coverSection("Subscription Period").getByText("1 year")).toBeInTheDocument();
+      expect(coverSection("Cloud Service").getByText("[Cloud Service]")).toBeInTheDocument();
+      expect(coverSection("DPA").getByText("None.")).toBeInTheDocument();
+    });
+
+    it("numbers nested clauses and shows their headings", () => {
+      renderPreview(csa());
+      const restrictions = screen.getByText("Restrictions on Customer.").closest("li")!;
+      expect(restrictions).toHaveTextContent(/^2\.1 Restrictions on Customer\./);
+      const subClauses = within(restrictions).getAllByRole("listitem");
+      expect(subClauses[0]).toHaveTextContent(/^\(a\) Except as expressly permitted/);
+    });
+
+    it("shows the document's CC BY 4.0 attribution once (its template has none)", () => {
+      renderPreview(csa());
+      expect(screen.getAllByRole("link", { name: "CC BY 4.0" })).toHaveLength(1);
+      expect(screen.getByText(/Common Paper Cloud Service Agreement \(Version 3\.0\)/)).toBeInTheDocument();
+    });
+
+    it("renders every document", () => {
+      for (const { definition } of documents) {
+        const { unmount } = renderPreview(defaultDocumentData(definition));
+        expect(screen.getByRole("heading", { level: 2, name: definition.name })).toBeInTheDocument();
+        unmount();
+      }
     });
   });
 });

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatError, sendChat, type ChatMessage } from "@/lib/chat";
-import { defaultNdaData } from "@/lib/nda";
-import { filledNdaData, mockChatApi } from "../fixtures";
+import { defaultDocumentData, emptyDocumentData } from "@/lib/document";
+import { filledNdaData, mockChatApi, NDA } from "../fixtures";
+
+const defaultNdaData = () => defaultDocumentData(NDA);
 
 const history: ChatMessage[] = [
   { role: "assistant", content: "Who are the parties?" },
@@ -18,7 +20,7 @@ afterEach(() => {
 });
 
 describe("sendChat", () => {
-  it("posts the history, the NDA and the user's local date", async () => {
+  it("posts the history, the document and the user's local date", async () => {
     const requests = mockChatApi(() => ({ reply: "Thanks!", data: filledNdaData() }));
     const result = await sendChat(history, defaultNdaData());
 
@@ -28,6 +30,14 @@ describe("sendChat", () => {
     expect(init).toMatchObject({
       method: "POST",
       headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  it("accepts a reply before any document is chosen", async () => {
+    mockChatApi(() => ({ reply: "What do you need?", data: emptyDocumentData() }));
+    expect(await sendChat([], emptyDocumentData())).toEqual({
+      reply: "What do you need?",
+      data: emptyDocumentData(),
     });
   });
 
@@ -44,6 +54,7 @@ describe("sendChat", () => {
     ["a validation error", Response.json({ detail: [{ msg: "bad" }] }, { status: 422 })],
     ["a non-JSON error", new Response("<h1>Bad gateway</h1>", { status: 502 })],
     ["a malformed reply", Response.json({ reply: "Hi" })],
+    ["a reply without fields", Response.json({ reply: "Hi", data: { documentId: null, parties: [{}, {}] } })],
     ["a non-JSON reply", new Response("ok")],
   ])("throws a generic message for %s", async (_, response) => {
     mockChatApi(() => response);

@@ -2,24 +2,24 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ChatError, MAX_MESSAGE_LENGTH, sendChat, type ChatMessage } from "@/lib/chat";
-import type { NdaData } from "@/lib/nda";
+import type { DocumentData } from "@/lib/document";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/lib/styles";
 
-interface NdaChatProps {
-  /** The NDA as the assistant should see it (an empty date means today). */
-  data: NdaData;
-  /** Receives the NDA with the assistant's updates after each reply. */
-  onDataChange: (data: NdaData) => void;
+interface DocumentChatProps {
+  /** The document as the assistant should see it (empty dates mean today). */
+  data: DocumentData;
+  /** Receives the document with the assistant's updates after each reply. */
+  onDataChange: (data: DocumentData) => void;
 }
 
 const FALLBACK_ERROR = "Something went wrong. Please try again.";
 
 /**
- * Freeform chat with the AI assistant, which asks about the NDA and fills it
- * in. The conversation lives here and is lost on reload; the NDA itself is
- * owned by the parent.
+ * Freeform chat with the AI assistant, which works out which document the user
+ * needs and fills it in. The conversation lives here and is lost on reload; the
+ * document itself is owned by the parent.
  */
-export default function NdaChat({ data, onDataChange }: NdaChatProps) {
+export default function DocumentChat({ data, onDataChange }: DocumentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Starts pending: the assistant's greeting is requested on mount.
   const [pending, setPending] = useState(true);
@@ -28,7 +28,7 @@ export default function NdaChat({ data, onDataChange }: NdaChatProps) {
   const inputId = useId();
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Turns read the latest NDA without restarting the greeting effect.
+  // Turns read the latest document without restarting the greeting effect.
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
@@ -140,7 +140,7 @@ export default function NdaChat({ data, onDataChange }: NdaChatProps) {
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type your answer…"
+          placeholder="Type your message…"
           maxLength={MAX_MESSAGE_LENGTH}
           className={`${inputClass} resize-none`}
         />

@@ -2,10 +2,12 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import NdaChat from "@/components/NdaChat";
+import DocumentChat from "@/components/DocumentChat";
 import type { ChatResult } from "@/lib/chat";
-import { defaultNdaData } from "@/lib/nda";
-import { filledNdaData, mockChatApi, type ChatRequestBody } from "../fixtures";
+import { defaultDocumentData, emptyDocumentData } from "@/lib/document";
+import { filledNdaData, mockChatApi, NDA, type ChatRequestBody } from "../fixtures";
+
+const defaultNdaData = () => defaultDocumentData(NDA);
 
 const GREETING = "Hi! Who are the two parties?";
 
@@ -17,7 +19,7 @@ const greetThen =
 
 const renderChat = (data = defaultNdaData()) => {
   const onDataChange = vi.fn();
-  const view = render(<NdaChat data={data} onDataChange={onDataChange} />);
+  const view = render(<DocumentChat data={data} onDataChange={onDataChange} />);
   return { onDataChange, user: userEvent.setup(), ...view };
 };
 
@@ -25,7 +27,7 @@ const log = () => within(screen.getByRole("log", { name: "Conversation with the 
 const messageBox = () => screen.getByRole("textbox", { name: "Message the assistant" });
 const sendButton = () => screen.getByRole("button", { name: "Send" });
 
-describe("NdaChat", () => {
+describe("DocumentChat", () => {
   it("asks the assistant for a greeting on load", async () => {
     const requests = mockChatApi(greetThen());
     const { onDataChange } = renderChat();
@@ -42,7 +44,7 @@ describe("NdaChat", () => {
     const requests = mockChatApi(greetThen());
     render(
       <StrictMode>
-        <NdaChat data={defaultNdaData()} onDataChange={() => {}} />
+        <DocumentChat data={defaultNdaData()} onDataChange={() => {}} />
       </StrictMode>,
     );
     expect(await log().findAllByText(GREETING)).toHaveLength(1);
@@ -51,7 +53,7 @@ describe("NdaChat", () => {
     expect(log().getAllByText(GREETING)).toHaveLength(1);
   });
 
-  it("sends the conversation and current NDA, then shows the reply", async () => {
+  it("sends the conversation and current document, then shows the reply", async () => {
     const requests = mockChatApi(greetThen("Got it: Acme and Globex."));
     const data = filledNdaData({ governingLaw: "" });
     const { user, onDataChange } = renderChat(data);
@@ -167,14 +169,22 @@ describe("NdaChat", () => {
     expect(await log().findByText(GREETING)).toBeInTheDocument();
   });
 
-  it("sends the latest NDA from the parent", async () => {
+  it("works before a document is chosen", async () => {
+    const requests = mockChatApi(() => ({ reply: "What do you need?", data: emptyDocumentData() }));
+    const { onDataChange } = renderChat(emptyDocumentData());
+    expect(await log().findByText("What do you need?")).toBeInTheDocument();
+    expect(requests[0].data).toEqual(emptyDocumentData());
+    expect(onDataChange).toHaveBeenCalledWith(emptyDocumentData());
+  });
+
+  it("sends the latest document from the parent", async () => {
     const requests = mockChatApi(greetThen());
     const onDataChange = vi.fn();
-    const { rerender } = render(<NdaChat data={defaultNdaData()} onDataChange={onDataChange} />);
+    const { rerender } = render(<DocumentChat data={defaultNdaData()} onDataChange={onDataChange} />);
     await log().findByText(GREETING);
 
     const updated = filledNdaData();
-    rerender(<NdaChat data={updated} onDataChange={onDataChange} />);
+    rerender(<DocumentChat data={updated} onDataChange={onDataChange} />);
     await userEvent.setup().type(messageBox(), "Next{Enter}");
     await waitFor(() => expect(requests).toHaveLength(2));
     expect(requests[1].data).toEqual(updated);

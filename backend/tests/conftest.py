@@ -1,21 +1,22 @@
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from prelegal_backend.config import Settings
 from prelegal_backend.main import create_app
-from prelegal_backend.nda import NdaUpdates
 
 
 @pytest.fixture
 def static_dir(tmp_path: Path) -> Path:
     """A minimal stand-in for the Next.js static export."""
     out = tmp_path / "out"
-    (out / "app" / "nda").mkdir(parents=True)
+    (out / "app" / "create").mkdir(parents=True)
     (out / "index.html").write_text("<h1>Sign in</h1>")
     (out / "app" / "index.html").write_text("<h1>Dashboard</h1>")
-    (out / "app" / "nda" / "index.html").write_text("<h1>NDA</h1>")
+    (out / "app" / "create" / "index.html").write_text("<h1>Creator</h1>")
     (out / "404.html").write_text("<h1>Page not found</h1>")
     return out
 
@@ -32,20 +33,50 @@ def client(settings: Settings):
         yield client
 
 
+def _model_in(annotation) -> type[BaseModel] | None:
+    """The model in an annotation such as `PartyUpdates | None`, if any."""
+    for t in (annotation, *get_args(annotation)):
+        if isinstance(t, type) and issubclass(t, BaseModel):
+            return t
+    return None
+
+
+def with_nulls(model: type[BaseModel], data: dict) -> dict:
+    """`data` with null for every field of `model` it leaves out, as the LLM's
+    strict structured output would have. Required nested models (`updates`) are
+    filled in the same way."""
+    result = {}
+    for name, field in model.model_fields.items():
+        key = field.alias or name
+        value = data.get(key)
+        nested = _model_in(field.annotation)
+        if nested and (value is not None or field.annotation is nested):
+            value = with_nulls(nested, value or {})
+        result[key] = value
+    return result
+
+
 class FakeLlm:
-    """Stands in for the LLM: records each call and returns a canned output."""
+    """Stands in for the LLM: records each call and returns canned outputs in turn
+    (the last one repeats). Outputs leave out the fields that stay null."""
 
     def __init__(self) -> None:
         self.calls: list[list[dict[str, str]]] = []
-        self.output: dict = {"reply": "Hello!", "updates": {}}
+        self.models: list[type[BaseModel]] = []
+        self.outputs: list[dict] = [{"reply": "Hello!"}]
         self.error: Exception | None = None
 
     def __call__(self, messages, response_model):
         self.calls.append(messages)
+        self.models.append(response_model)
         if self.error:
             raise self.error
-        updates = {field: None for field in NdaUpdates.model_fields} | self.output["updates"]
-        return response_model.model_validate({**self.output, "updates": updates})
+        output = self.outputs[min(len(self.calls), len(self.outputs)) - 1]
+        return response_model.model_validate(with_nulls(response_model, output))
+
+    @property
+    def prompts(self) -> list[str]:
+        return [messages[0]["content"] for messages in self.calls]
 
 
 @pytest.fixture

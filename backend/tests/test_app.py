@@ -45,7 +45,7 @@ def test_serves_frontend_pages(client: TestClient):
     for path, text in [
         ("/", "Sign in"),
         ("/app/", "Dashboard"),
-        ("/app/nda/", "NDA"),
+        ("/app/create/", "Creator"),
     ]:
         response = client.get(path)
         assert response.status_code == 200, path
@@ -54,9 +54,9 @@ def test_serves_frontend_pages(client: TestClient):
 
 
 def test_directory_without_trailing_slash_redirects(client: TestClient):
-    response = client.get("/app/nda", follow_redirects=False)
+    response = client.get("/app/create", follow_redirects=False)
     assert response.status_code in (307, 308)
-    assert response.headers["location"].endswith("/app/nda/")
+    assert response.headers["location"].endswith("/app/create/")
 
 
 def test_unknown_page_serves_frontend_404(client: TestClient):

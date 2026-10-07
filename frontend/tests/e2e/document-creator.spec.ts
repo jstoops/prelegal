@@ -1,32 +1,70 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { extractText, getDocumentProxy } from "unpdf";
 
-const NDA_PATH = "/app/nda/";
+const NDA_PATH = "/app/create/?doc=mutual-nda";
 const FIXED_NOW = new Date("2026-10-05T15:00:00-04:00"); // Oct 5, 2026 in New York
+
+interface FieldDefinition {
+  key: string;
+  kind: string;
+  default?: string | number;
+  options?: { value: string }[];
+}
+
+const DOCUMENTS: { id: string; name: string; fields: FieldDefinition[] }[] = JSON.parse(
+  readFileSync(path.resolve(__dirname, "..", "..", "..", "documents.json"), "utf8"),
+).documents;
+
+/** A document's fields at their defaults, as the backend fills them in. */
+const defaultFields = (id: string) =>
+  Object.fromEntries(
+    DOCUMENTS.find((d) => d.id === id)!.fields.map((f) => [
+      f.key,
+      f.default ?? (f.kind === "years" ? 1 : f.kind === "choice" ? f.options![0].value : ""),
+    ]),
+  );
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(FIXED_NOW);
 });
 
-const preview = (page: Page) => page.getByRole("region", { name: "NDA preview" });
+const preview = (page: Page) => page.getByRole("region", { name: "Document preview" });
 const chatLog = (page: Page) => page.getByRole("log", { name: "Conversation with the assistant" });
 const messageBox = (page: Page) => page.getByRole("textbox", { name: "Message the assistant" });
+const pageTitle = (page: Page) => page.getByRole("heading", { level: 1 });
 
-const GREETING = "Hi! I'll help you draft your Mutual NDA. Who are the two parties?";
+const GREETING = "Hi! I'll help you draft your agreement. Are the pre-filled terms right?";
+
+interface ChatData {
+  documentId: string | null;
+  fields: Record<string, unknown>;
+  parties: Record<string, string>[];
+}
 
 interface ChatBody {
   messages: { role: "user" | "assistant"; content: string }[];
-  data: Record<string, unknown> & { parties: Record<string, string>[] };
+  data: ChatData;
   today: string;
 }
 
-type Script = Record<string, { reply: string; updates?: object }>;
+interface Turn {
+  reply: string;
+  /** Field values to set. */
+  fields?: Record<string, unknown>;
+  parties?: Record<string, string>[];
+  /** A document to switch to, starting from its defaults. */
+  documentId?: string;
+}
+
+type Script = Record<string, Turn>;
 
 /**
  * Stands in for the LLM: the real backend has no API key in these tests, so
  * `/api/chat` is answered in the browser. Each user message is looked up in
- * `script`, and its updates are merged into the NDA the page sent.
+ * `script`, and its updates are applied to the document the page sent.
  */
 async function mockAssistant(page: Page, script: Script = {}) {
   const requests: ChatBody[] = [];
@@ -34,8 +72,16 @@ async function mockAssistant(page: Page, script: Script = {}) {
     const body = route.request().postDataJSON() as ChatBody;
     requests.push(body);
     const last = body.messages.at(-1);
-    const turn = last ? (script[last.content] ?? { reply: "Noted." }) : { reply: GREETING };
-    await route.fulfill({ json: { reply: turn.reply, data: { ...body.data, ...turn.updates } } });
+    const turn: Turn = last ? (script[last.content] ?? { reply: "Noted." }) : { reply: GREETING };
+    const data = turn.documentId
+      ? { ...body.data, documentId: turn.documentId, fields: defaultFields(turn.documentId) }
+      : body.data;
+    await route.fulfill({
+      json: {
+        reply: turn.reply,
+        data: { ...data, fields: { ...data.fields, ...turn.fields }, parties: turn.parties ?? data.parties },
+      },
+    });
   });
   return requests;
 }
@@ -49,16 +95,14 @@ const LAW = "Delaware law, courts in New Castle, DE. Retention limited to 90 day
 const FULL_SCRIPT: Script = {
   [PARTIES]: {
     reply: "Thanks! What's the purpose of the NDA?",
-    updates: {
-      parties: [
-        { company: "Acme, Inc.", printName: "Jane Doe", title: "CEO", noticeAddress: "legal@acme.com" },
-        { company: "Globex LLC", printName: "John Roe", title: "CTO", noticeAddress: "1 Main St, Springfield" },
-      ],
-    },
+    parties: [
+      { company: "Acme, Inc.", printName: "Jane Doe", title: "CEO", noticeAddress: "legal@acme.com" },
+      { company: "Globex LLC", printName: "John Roe", title: "CTO", noticeAddress: "1 Main St, Springfield" },
+    ],
   },
   [TERMS]: {
     reply: "Got it. Which state's law governs it?",
-    updates: {
+    fields: {
       purpose: "Exploring a joint go-to-market partnership.",
       effectiveDate: "2027-01-15",
       mndaTermType: "open",
@@ -67,7 +111,7 @@ const FULL_SCRIPT: Script = {
   },
   [LAW]: {
     reply: "All set! Review the preview and click Download PDF.",
-    updates: {
+    fields: {
       governingLaw: "Delaware",
       jurisdiction: "New Castle, DE",
       modifications: "Retention limited to 90 days.",
@@ -75,16 +119,16 @@ const FULL_SCRIPT: Script = {
   },
 };
 
-async function say(page: Page, text: string) {
+async function say(page: Page, text: string, script = FULL_SCRIPT) {
   await messageBox(page).fill(text);
   await messageBox(page).press("Enter");
-  await expect(chatLog(page).getByText(FULL_SCRIPT[text].reply)).toBeVisible();
+  await expect(chatLog(page).getByText(script[text].reply)).toBeVisible();
 }
 
 /** Opens the creator and waits for the assistant's greeting. */
-async function openCreator(page: Page, script: Script = {}) {
+async function openCreator(page: Page, script: Script = {}, url = NDA_PATH) {
   const requests = await mockAssistant(page, script);
-  await page.goto(NDA_PATH);
+  await page.goto(url);
   await expect(chatLog(page).getByText(GREETING)).toBeVisible();
   return requests;
 }
@@ -101,13 +145,18 @@ async function downloadPdf(page: Page): Promise<{ download: Download; text: stri
     page.getByRole("button", { name: "Download PDF" }).click(),
   ]);
   expect(await download.failure()).toBeNull();
-  const path = await download.path();
-  const { readFile } = await import("node:fs/promises");
-  const bytes = new Uint8Array(await readFile(path));
+  const bytes = new Uint8Array(readFileSync(await download.path()));
   expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
   const pdf = await getDocumentProxy(bytes);
   const { text: pages } = await extractText(pdf, { mergePages: false });
   return { download, pages, text: pages.join("\n").replace(/\s+/g, " ") };
+}
+
+async function expectNoAxeViolations(page: Page) {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 test.describe("page load", () => {
@@ -119,8 +168,8 @@ test.describe("page load", () => {
     page.on("pageerror", (err) => problems.push(err.message));
 
     await openCreator(page);
-    await expect(page).toHaveTitle("Mutual NDA Creator | Prelegal");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mutual NDA Creator");
+    await expect(page).toHaveTitle("Document Creator | Prelegal");
+    await expect(pageTitle(page)).toHaveText("Mutual Non-Disclosure Agreement");
     await expect(preview(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
     await page.waitForLoadState("networkidle");
     expect(problems).toEqual([]);
@@ -134,10 +183,7 @@ test.describe("page load", () => {
   test("passes an automated accessibility scan (WCAG 2.1 AA)", async ({ page }) => {
     await openCreator(page, FULL_SCRIPT);
     await say(page, PARTIES);
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-      .analyze();
-    expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+    await expectNoAxeViolations(page);
   });
 });
 
@@ -157,12 +203,16 @@ test.describe("AI chat and live preview", () => {
     await expect(row("Print Name").getByRole("cell")).toHaveText(["Jane Doe", "John Roe"]);
   });
 
-  test("sends the whole conversation, the current NDA and the local date", async ({ page }) => {
+  test("sends the whole conversation, the current document and the local date", async ({ page }) => {
     const requests = await openCreator(page, FULL_SCRIPT);
     await say(page, PARTIES);
     await say(page, TERMS);
 
-    expect(requests[0]).toMatchObject({ messages: [], today: "2026-10-05", data: { effectiveDate: "" } });
+    expect(requests[0]).toMatchObject({
+      messages: [],
+      today: "2026-10-05",
+      data: { documentId: "mutual-nda", fields: { effectiveDate: "" } },
+    });
     const last = requests.at(-1)!;
     expect(last.messages.map((m) => m.role)).toEqual(["assistant", "user", "assistant", "user"]);
     expect(last.data.parties[0].company).toBe("Acme, Inc.");
@@ -205,8 +255,90 @@ test.describe("AI chat and live preview", () => {
     await context.route("https://commonpaper.com/**", (route) => route.fulfill({ body: "ok" }));
     const [popup] = await Promise.all([context.waitForEvent("page"), link.click()]);
     expect(popup.url()).toBe("https://commonpaper.com/standards/mutual-nda/1.0");
-    expect(page.url()).toMatch(/\/$/);
+    expect(page.url()).toContain(NDA_PATH);
   });
+});
+
+test.describe("choosing a document in the chat", () => {
+  const UNSUPPORTED = "I need an employment contract.";
+  const NEED = "We sell a SaaS analytics product. Acme, Inc. is the provider.";
+  const SWITCH = "Actually, we only want a 30-day pilot first.";
+  const CHOOSE_SCRIPT: Script = {
+    [UNSUPPORTED]: {
+      reply: "I can't draft employment contracts. The closest is a Professional Services Agreement. Want that?",
+    },
+    [NEED]: {
+      reply: "A Cloud Service Agreement fits. I've pre-filled some standard terms: are they right?",
+      documentId: "cloud-service-agreement",
+      parties: [
+        { company: "Acme, Inc.", printName: "", title: "", noticeAddress: "" },
+        { company: "", printName: "", title: "", noticeAddress: "" },
+      ],
+    },
+    [SWITCH]: {
+      reply: "Switched to a Pilot Agreement, keeping Acme, Inc. as the provider.",
+      documentId: "pilot-agreement",
+    },
+  };
+
+  test("starts without a document, then shows the one the assistant picks", async ({ page }) => {
+    const requests = await openCreator(page, CHOOSE_SCRIPT, "/app/create/");
+    await expect(pageTitle(page)).toHaveText("New Document");
+    await expect(preview(page).getByRole("heading", { name: "No document chosen yet" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Download PDF" })).toHaveCount(0);
+    expect(requests[0].data).toEqual({
+      documentId: null,
+      fields: {},
+      parties: [
+        { printName: "", title: "", company: "", noticeAddress: "" },
+        { printName: "", title: "", company: "", noticeAddress: "" },
+      ],
+    });
+
+    await say(page, UNSUPPORTED, CHOOSE_SCRIPT);
+    await expect(pageTitle(page)).toHaveText("New Document");
+
+    await say(page, NEED, CHOOSE_SCRIPT);
+    await expect(pageTitle(page)).toHaveText("Cloud Service Agreement");
+    const doc = preview(page);
+    await expect(doc.getByRole("heading", { level: 2, name: "Cloud Service Agreement" })).toBeVisible();
+    await expect(doc.getByRole("columnheader")).toHaveText(["PROVIDER", "CUSTOMER"]);
+    await expect(doc.getByText("Restrictions on Customer.")).toBeVisible();
+
+    const { download, text } = await downloadPdf(page);
+    expect(download.suggestedFilename()).toBe("Cloud-Service-Agreement-Acme-Inc.pdf");
+    expect(text).toContain("Subscription Period");
+    expect(text).toContain("2.1 Restrictions on Customer.");
+    expect(text).toContain("Common Paper Cloud Service Agreement (Version 3.0) free to use under CC BY 4.0.");
+  });
+
+  test("follows the assistant when it switches documents", async ({ page }) => {
+    await openCreator(page, CHOOSE_SCRIPT, "/app/create/");
+    await say(page, NEED, CHOOSE_SCRIPT);
+    await say(page, SWITCH, CHOOSE_SCRIPT);
+    await expect(pageTitle(page)).toHaveText("Pilot Agreement");
+    await expect(preview(page).getByRole("heading", { level: 3, name: "Pilot Period" })).toBeVisible();
+    const companies = preview(page).getByRole("row").filter({ has: page.getByRole("rowheader", { name: "Company" }) });
+    await expect(companies.getByRole("cell")).toHaveText(["Acme, Inc.", ""]);
+  });
+
+  test("passes an accessibility scan before a document is chosen", async ({ page }) => {
+    await openCreator(page, {}, "/app/create/");
+    await expectNoAxeViolations(page);
+  });
+
+  for (const { id, name } of DOCUMENTS) {
+    test(`previews the ${name} from its dashboard link`, async ({ page }) => {
+      const problems: string[] = [];
+      page.on("pageerror", (err) => problems.push(err.message));
+      const requests = await openCreator(page, {}, `/app/create/?doc=${id}`);
+      await expect(pageTitle(page)).toHaveText(name);
+      await expect(preview(page).getByRole("heading", { level: 2, name })).toBeVisible();
+      await expect(preview(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
+      expect(requests[0].data).toMatchObject({ documentId: id, fields: defaultFields(id) });
+      expect(problems).toEqual([]);
+    });
+  }
 });
 
 test.describe("PDF download", () => {
