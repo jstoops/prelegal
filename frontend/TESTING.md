@@ -11,8 +11,6 @@ Run from `frontend/`:
 | `npm run test:e2e` | End-to-end tests in Chromium (Playwright) against a production build (`next build && next start` on port 3100). Run `npx playwright install chromium` once beforehand. | ~1 min |
 | `npm run lint` / `npx tsc --noEmit` | Static checks. Test files are included. | |
 
-**Network:** `NdaPdfDocument.test.tsx` and the e2e PDF tests download the real Noto font pieces from jsDelivr, just as the app does, so they need internet access.
-
 ### Coverage
 
 | File | Covers |
@@ -21,11 +19,11 @@ Run from `frontend/`:
 | `tests/unit/nda-template.test.ts` | Template parser. Checks the real repo templates word-for-word against the source markdown, including term references, bold and links. Checks the CC BY attributions, CRLF line endings, and rejection of malformed templates (missing attribution, missing intro, wrapped lines, no sections). Also checks loading and JSON serializability. |
 | `tests/unit/NdaForm.test.tsx` | Accessible labels, editing every field, party isolation, radio groups, the years input (clear and retype, max, decimals, restore on blur), no form submission, keyboard order. |
 | `tests/unit/NdaPreview.test.tsx` | Heading structure, all 11 standard terms, links (https, new tab), filled values, checkbox markers, party table, signature row height, placeholders, user input rendered as text and never as HTML. |
-| `tests/unit/NdaCreator.test.tsx` | Live preview, the effective date default and editing (no snap-back), the PDF download flow (data passed, filename, object URL lifecycle), the progress and busy state, error reporting and retry, and the status region. Also: the fonts chosen from typed text, prefetching before registering, the font download error message, and the unsupported-characters warning (listing, summarizing, clearing, not blocking download). |
-| `tests/unit/pdf-fonts.test.ts` | Font planning and loading. Checks the manifest and coverage table: pinned version, an SRI hash for every file, sorted and merged ranges, coverage exactly equal to the union of all pieces, and CJK pieces never covering other scripts. Checks the CJK language preference; the Noto Serif piece chosen for each script (Polish, Czech, Turkish, Russian, Greek, Vietnamese, math); CJK fallback across languages; stable font order; Arabic, Hebrew, Thai, Devanagari and emoji reported as unsupported and never partly drawn; jsDelivr URLs; and the CJK italic alias. Also checks tab clean-up (`toPdfText`) and the loader: one verified fetch per file, no cookies or referrer, registration as a data URL, per-session caching, `FontLoadError`, and retry after a failure. |
-| `tests/unit/NdaPdfDocument.test.tsx` | Renders the **real PDF** with the real fonts and extracts its text. Checks metadata, the cover page fitting on page 1, every value, option marks, the standard terms word-for-word, attributions, no hyphenation, placeholders, special characters, long text flowing to new pages (never clipped), and the signature table never splitting. **Fonts:** Latin-only text embeds only Noto Serif regular, bold and italic; there are **no ligatures** (checked in the PDF's ToUnicode maps); and Cyrillic, Greek, Vietnamese, Central European, Japanese, Korean and Chinese text all appear in the PDF, using only the CJK pieces needed. |
+| `tests/unit/NdaCreator.test.tsx` | Live preview, the effective date default and editing (no snap-back), the PDF download flow (data passed, filename, object URL lifecycle), the progress and busy state, error reporting and retry, and the status region. |
+| `tests/unit/NdaPdfDocument.test.tsx` | Renders the **real PDF** and extracts its text. Checks metadata, the cover page fitting on page 1, every value, option marks, the standard terms word-for-word, attributions, no hyphenation, placeholders, special characters, long text flowing to new pages (never clipped), and the signature table never splitting. |
 | `tests/e2e/nda-creator.spec.ts` | Real browser, production build. Checks: no console errors or hydration warnings; the date defaults to today in the browser's time zone; an axe-core WCAG 2.1 AA scan; the full form-to-preview flow; date clearing; years validation; links opening in a new tab; **actual PDF downloads**, which are parsed and checked; keyboard-only download; the PDF library loading only on demand; and the phone layout. |
-| `tests/e2e/pdf-fonts.spec.ts` | Real browser. Checks: a multilingual PDF download, with each script verified in the file and the CDN font requests checked; a Latin-only NDA requesting exactly the three Noto Serif latin files once each (none before download, none again on a second download); font requests carrying no Referer and no cookies; a **tampered font file rejected** by the integrity check; the CDN being blocked (clear error, then recovery); the unsupported-characters warning (announced, and not covering the panels); and the coverage table loading only for non-Latin text. |
+
+Known gap: non-Latin scripts in the PDF are a `todo` test. They need an embedded Unicode font ([PL-4](https://johnstoops.atlassian.net/browse/PL-4)).
 
 ## Manual test plan
 
@@ -65,37 +63,10 @@ Run this before a release, or after changing the layout, the PDF, or the templat
   - [ ] The links (commonpaper.com and CC BY 4.0) are clickable.
   - [ ] Both CC BY 4.0 attribution lines are present.
   - [ ] Text is selectable and searchable, not an image.
-  - [ ] **Search and copy:** searching for "Confidential", "Effective" and "conflict" finds them, and copying a paragraph pastes the exact text with no missing letters. This depends on ligatures being off.
-  - [ ] All text is in Noto Serif, including bold headings and italic captions.
   - [ ] It prints cleanly on US Letter paper.
 - [ ] A very long Purpose (several paragraphs) flows onto extra pages and none of it is cut off.
 - [ ] Downloading twice in a row works and produces two files.
-
-### 3a. International text in the PDF
-
-Paste each sample into a different field, download, and open the PDF in two viewers:
-
-| Script | Sample |
-| --- | --- |
-| Central European | `Zażółć gęślą jaźń; Dvořák; Ağaoğlu; Őrség` |
-| Cyrillic | `Сотрудничество в области исследований` |
-| Greek | `Έρευνα και ανάπτυξη` |
-| Vietnamese | `Thành phố Hồ Chí Minh` |
-| Japanese | `株式会社さくら 山田 太郎` |
-| Korean | `김민준 대표이사` |
-| Chinese | `李明 有限公司` |
-
-- [ ] Every sample appears in the PDF exactly as typed, with no boxes (☐), question marks or blanks, and with accents and diacritics in the right place.
-- [ ] The Japanese, Korean and Chinese text looks natural for each language. Japanese and Chinese use different shapes for some shared characters.
-- [ ] Each sample can be copied out of the PDF and pasted back exactly.
-- [ ] The cover page still fits on page 1.
-- [ ] **Unsupported scripts:** type `مرحبا` (Arabic) or `שלום` (Hebrew). An amber notice under the header lists those characters, and a screen reader announces it. The form and preview stay fully visible below it. The PDF still downloads, and the characters are missing from it. Removing them hides the notice.
-- [ ] **Tabs:** paste text containing a tab, e.g. from a spreadsheet, into Purpose. In the PDF the words on either side are separated by a space, not run together.
-- [ ] **Offline:** in DevTools, set the network to Offline (after the page has loaded) and click Download. The page shows "Couldn't download the PDF fonts. Check your connection and try again." Going back online and retrying works.
-- [ ] **Network panel:**
-  - A Latin-only NDA requests just three `noto-serif-latin-*.woff` files from `cdn.jsdelivr.net`, once each and only when you click Download.
-  - A second download makes no new font requests.
-  - The font requests have no `Referer` or `Cookie` header.
+- [ ] **Known limitation:** names in Chinese, Japanese, Cyrillic or Greek show correctly in the preview but not in the PDF. This is tracked as [PL-4](https://johnstoops.atlassian.net/browse/PL-4), so confirm it is still the case and don't report it as a new bug.
 
 ### 4. Accessibility
 
@@ -111,7 +82,7 @@ Paste each sample into a different field, download, and open the PDF in two view
 
 - [ ] At phone width (about 390 px) the form sits above the preview, the page has no horizontal scrolling, and the Download PDF button stays visible in the header.
 - [ ] At tablet width (about 768 px) the layout is usable.
-- [ ] On desktop the page itself doesn't scroll. The header stays in place, and the form and the preview each scroll in their own panel.
+- [ ] On desktop the form scrolls independently of the preview.
 
 ### 6. Error handling
 

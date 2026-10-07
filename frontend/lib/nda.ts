@@ -2,7 +2,6 @@
  * Mutual NDA data model and the derived cover-page content shared by the
  * HTML preview and the PDF renderer, so both always show the same document.
  */
-import type { Inline, NdaTemplate } from "@/lib/nda-template";
 
 export type TermType = "fixed" | "open";
 
@@ -188,55 +187,6 @@ export function partyRows(data: NdaData): PartyRow[] {
       values: field("noticeAddress"),
     },
     { label: "Date", values: ["", ""] },
-  ];
-}
-
-const TEXT_FIELDS = ["purpose", "governingLaw", "jurisdiction", "modifications"] as const;
-const PARTY_TEXT_FIELDS = ["printName", "title", "company", "noticeAddress"] as const;
-
-/** Free text the user typed (the only text that can contain any script). */
-export function userTexts(data: NdaData): string[] {
-  return [
-    ...TEXT_FIELDS.map((key) => data[key]),
-    ...data.parties.flatMap((party) => PARTY_TEXT_FIELDS.map((key) => party[key])),
-  ];
-}
-
-/** Applies `transform` to every free-text field. */
-export function mapUserTexts(data: NdaData, transform: (text: string) => string): NdaData {
-  const mapped = { ...data };
-  for (const key of TEXT_FIELDS) mapped[key] = transform(data[key]);
-  mapped.parties = data.parties.map((party) => {
-    const copy = { ...party };
-    for (const key of PARTY_TEXT_FIELDS) copy[key] = transform(party[key]);
-    return copy;
-  }) as NdaData["parties"];
-  return mapped;
-}
-
-/**
- * Every string the PDF draws, used to decide which fonts it needs. Keep in
- * sync with NdaPdfDocument: text drawn there but missing here could be left
- * without a font. (PL-5 will derive both from one document model.)
- */
-export function documentTexts(data: NdaData, template: NdaTemplate): string[] {
-  const plain = (content: Inline[]) => content.map((part) => part.text).join("");
-  return [
-    NDA_TITLE,
-    STANDARD_TERMS_TITLE,
-    SIGNING_STATEMENT,
-    ...PARTY_HEADINGS,
-    ...coverPageSections(data).flatMap((s) => [
-      s.heading,
-      s.label ?? "",
-      ...(s.lines ?? []),
-      ...(s.options ?? []).map((o) => o.text),
-    ]),
-    ...partyRows(data).flatMap((r) => [r.label, r.hint ?? "", ...r.values]),
-    plain(template.coverIntro),
-    plain(template.coverAttribution),
-    ...template.standardTerms.flatMap((s) => [`${s.number}. ${s.title}.`, plain(s.body)]),
-    plain(template.standardTermsAttribution),
   ];
 }
 
