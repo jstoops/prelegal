@@ -1,12 +1,13 @@
 /**
  * Client for the backend's AI chat (`POST /api/chat`). The backend is
- * stateless: each turn sends the whole conversation and the current NDA, and
- * gets back the assistant's reply and the NDA with its updates applied.
+ * stateless: each turn sends the whole conversation and the current document,
+ * and gets back the assistant's reply and the document with its updates
+ * applied (possibly a newly chosen document).
  */
 
-import { todayIso, type NdaData } from "@/lib/nda";
+import { todayIso, type DocumentData } from "@/lib/document";
 
-/** Longest message the backend accepts (`MAX_MESSAGE_LENGTH` in backend nda.py). */
+/** Longest message the backend accepts (`MAX_MESSAGE_LENGTH` in backend chat.py). */
 export const MAX_MESSAGE_LENGTH = 4000;
 
 export interface ChatMessage {
@@ -16,7 +17,7 @@ export interface ChatMessage {
 
 export interface ChatResult {
   reply: string;
-  data: NdaData;
+  data: DocumentData;
 }
 
 /** A failed chat turn, with a message that can be shown to the user. */
@@ -40,13 +41,19 @@ async function errorDetail(response: Response): Promise<string> {
 
 function isChatResult(value: unknown): value is ChatResult {
   const result = value as ChatResult | null;
-  return typeof result?.reply === "string" && result.data?.parties?.length === 2;
+  return (
+    typeof result?.reply === "string" &&
+    (typeof result.data?.documentId === "string" || result.data?.documentId === null) &&
+    typeof result.data.fields === "object" &&
+    result.data.fields !== null &&
+    result.data.parties?.length === 2
+  );
 }
 
 /** Sends one chat turn. Pass an empty `messages` to get the opening greeting. */
 export async function sendChat(
   messages: ChatMessage[],
-  data: NdaData,
+  data: DocumentData,
   signal?: AbortSignal,
 ): Promise<ChatResult> {
   let response: Response;

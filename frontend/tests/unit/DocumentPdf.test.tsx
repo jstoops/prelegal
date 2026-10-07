@@ -2,19 +2,21 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 import { extractText, getDocumentProxy } from "unpdf";
 import { beforeAll, describe, expect, it } from "vitest";
-import NdaPdfDocument from "@/components/NdaPdfDocument";
-import { defaultNdaData, type NdaData } from "@/lib/nda";
-import { loadNdaTemplate, type NdaTemplate } from "@/lib/nda-template";
-import { filledNdaData, TEMPLATES_DIR } from "../fixtures";
+import DocumentPdf from "@/components/DocumentPdf";
+import type { CreatorDocument } from "@/lib/catalog";
+import { defaultDocumentData, withDefaultDates, type DocumentData } from "@/lib/document";
+import type { Clause, Inline } from "@/lib/template";
+import { creatorDocuments, filledNdaData } from "../fixtures";
 
-let template: NdaTemplate;
-beforeAll(async () => {
-  template = await loadNdaTemplate(TEMPLATES_DIR);
-});
+let documents: CreatorDocument[];
+const doc = (id: string) => documents.find((d) => d.definition.id === id)!;
+
+const plain = (content: Inline[]) => content.map((p) => p.text).join("");
+const flatten = (clauses: Clause[]): Clause[] => clauses.flatMap((c) => [c, ...flatten(c.children)]);
 
 /** Renders the real PDF and returns its bytes, per-page text and metadata. */
-async function renderPdf(data: NdaData) {
-  const buffer = await renderToBuffer(<NdaPdfDocument data={data} template={template} />);
+async function renderPdf(data: DocumentData) {
+  const buffer = await renderToBuffer(<DocumentPdf document={doc(data.documentId!)} data={data} />);
   const pdfDoc = await getDocumentProxy(new Uint8Array(buffer));
   const { text: pages } = await extractText(pdfDoc, { mergePages: false });
   const { info } = await pdfDoc.getMetadata();
@@ -23,9 +25,10 @@ async function renderPdf(data: NdaData) {
   return { buffer, pages, flat: all.replace(/\s+/g, " "), info: info as Record<string, string> };
 }
 
-describe("NdaPdfDocument", () => {
+describe("DocumentPdf", () => {
   let filled: Awaited<ReturnType<typeof renderPdf>>;
   beforeAll(async () => {
+    documents = await creatorDocuments();
     filled = await renderPdf(filledNdaData());
   }, 30_000);
 
@@ -89,9 +92,8 @@ describe("NdaPdfDocument", () => {
   }, 30_000);
 
   it("includes all 11 standard terms word-for-word", () => {
-    for (const section of template.standardTerms) {
-      const body = section.body.map((p) => p.text).join("");
-      expect(filled.flat).toContain(`${section.number}. ${section.title}. ${body}`.replace(/\s+/g, " "));
+    for (const clause of doc("mutual-nda").terms.clauses) {
+      expect(filled.flat).toContain(`${clause.label} ${plain(clause.body)}`.replace(/\s+/g, " "));
     }
   });
 
@@ -113,7 +115,7 @@ describe("NdaPdfDocument", () => {
   });
 
   it("shows placeholders for blank fields", async () => {
-    const blank = await renderPdf(defaultNdaData());
+    const blank = await renderPdf(defaultDocumentData(doc("mutual-nda").definition));
     expect(blank.flat).toContain("[Effective Date]");
     expect(blank.flat).toContain("Governing Law: [Governing Law]");
     expect(blank.flat).toContain("Jurisdiction: [Jurisdiction]");
@@ -145,6 +147,20 @@ describe("NdaPdfDocument", () => {
       .filter((i) => i >= 0);
     expect(new Set(tablePages).size).toBe(1);
   }, 30_000);
+
+  it("renders every document with its parties and every clause", async () => {
+    for (const { definition, terms } of documents) {
+      const data = withDefaultDates(definition, defaultDocumentData(definition), "2026-10-05");
+      const result = await renderPdf(data);
+      expect(result.info.Title).toBe(definition.name);
+      expect(result.flat).toContain(definition.parties[0].toUpperCase());
+      expect(result.flat).toContain(definition.signingStatement);
+      for (const clause of flatten(terms.clauses)) {
+        const start = `${clause.label} ${clause.heading ?? plain(clause.body).slice(0, 30)}`;
+        expect(result.flat, `${definition.id} ${clause.label}`).toContain(start.replace(/\s+/g, " ").trim());
+      }
+    }
+  }, 120_000);
 
   it.todo("renders non-Latin scripts (CJK, Cyrillic, Greek) — needs an embedded Unicode font");
 });

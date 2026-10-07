@@ -1,29 +1,23 @@
+import type { CreatorDocument } from "@/lib/catalog";
 import {
   coverPageSections,
-  NDA_TITLE,
-  PARTY_HEADINGS,
+  partyHeadings,
   partyRows,
-  SIGNING_STATEMENT,
   STANDARD_TERMS_TITLE,
-  type NdaData,
-} from "@/lib/nda";
-import type { Inline, NdaTemplate } from "@/lib/nda-template";
+  type DocumentData,
+} from "@/lib/document";
+import type { Clause, Inline } from "@/lib/template";
 
 function InlineText({ content }: { content: Inline[] }) {
   return content.map((part, i) => {
+    let node;
     switch (part.kind) {
-      case "bold":
-        return <strong key={i}>{part.text}</strong>;
       case "term":
-        return (
-          <span key={i} className="font-semibold text-brand-strong">
-            {part.text}
-          </span>
-        );
+        node = <span className="font-semibold text-brand-strong">{part.text}</span>;
+        break;
       case "link":
-        return (
+        node = (
           <a
-            key={i}
             href={part.href}
             target="_blank"
             rel="noreferrer"
@@ -32,34 +26,51 @@ function InlineText({ content }: { content: Inline[] }) {
             {part.text}
           </a>
         );
+        break;
       default:
-        return part.text;
+        node = part.text;
     }
+    return part.bold ? <strong key={i}>{node}</strong> : <span key={i}>{node}</span>;
   });
 }
 
-interface NdaPreviewProps {
-  data: NdaData;
-  template: NdaTemplate;
+function ClauseList({ clauses, depth = 0 }: { clauses: Clause[]; depth?: number }) {
+  return (
+    <ol className={depth === 0 ? "mt-6 space-y-4" : "mt-2 space-y-2 pl-6"}>
+      {clauses.map((clause) => (
+        <li key={clause.label} className="text-justify">
+          {clause.label}{" "}
+          {clause.heading && <strong>{clause.heading} </strong>}
+          <InlineText content={clause.body} />
+          {clause.children.length > 0 && <ClauseList clauses={clause.children} depth={depth + 1} />}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
-export default function NdaPreview({ data, template }: NdaPreviewProps) {
+interface DocumentPreviewProps {
+  document: CreatorDocument;
+  /** The document's data, with blank dates already shown as today. */
+  data: DocumentData;
+}
+
+export default function DocumentPreview({ document, data }: DocumentPreviewProps) {
+  const { definition, terms } = document;
   return (
     <article className="mx-auto max-w-[8.5in] bg-white px-10 py-12 font-serif text-[15px] leading-relaxed text-slate-900 shadow-lg ring-1 ring-slate-200 sm:px-16">
-      <h2 className="text-center text-2xl font-bold">{NDA_TITLE}</h2>
+      <h2 className="text-center text-2xl font-bold">{definition.name}</h2>
       <p className="mt-6">
-        <InlineText content={template.coverIntro} />
+        <InlineText content={document.intro} />
       </p>
 
       <div className="mt-6 space-y-5">
-        {coverPageSections(data).map((section) => (
+        {coverPageSections(definition, data).map((section) => (
           <section key={section.heading}>
             <h3 className="text-base font-bold">{section.heading}</h3>
-            {section.label && (
-              <p className="text-xs italic text-slate-500">{section.label}</p>
-            )}
-            {section.lines?.map((line) => (
-              <p key={line} className="mt-1 whitespace-pre-wrap">
+            {section.label && <p className="text-xs italic text-slate-500">{section.label}</p>}
+            {section.lines?.map((line, i) => (
+              <p key={i} className="mt-1 whitespace-pre-wrap">
                 {line}
               </p>
             ))}
@@ -70,9 +81,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
                     <span aria-hidden className="font-sans">
                       {option.checked ? "☒" : "☐"}
                     </span>
-                    <span className={option.checked ? "" : "text-slate-500"}>
-                      {option.text}
-                    </span>
+                    <span className={option.checked ? "" : "text-slate-500"}>{option.text}</span>
                   </li>
                 ))}
               </ul>
@@ -81,13 +90,13 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
         ))}
       </div>
 
-      <p className="mt-6">{SIGNING_STATEMENT}</p>
+      <p className="mt-6">{definition.signingStatement}</p>
 
       <table className="mt-4 w-full border-collapse text-sm">
         <thead>
           <tr>
             <td className="w-1/4 border border-slate-300 p-2" />
-            {PARTY_HEADINGS.map((heading) => (
+            {partyHeadings(definition).map((heading) => (
               <th key={heading} scope="col" className="border border-slate-300 p-2">
                 {heading}
               </th>
@@ -103,9 +112,7 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
               >
                 {row.label}
                 {row.hint && (
-                  <span className="block text-xs font-normal italic text-slate-500">
-                    {row.hint}
-                  </span>
+                  <span className="block text-xs font-normal italic text-slate-500">{row.hint}</span>
                 )}
               </th>
               {row.values.map((value, i) => (
@@ -122,23 +129,18 @@ export default function NdaPreview({ data, template }: NdaPreviewProps) {
       </table>
 
       <p className="mt-4 text-xs text-slate-500">
-        <InlineText content={template.coverAttribution} />
+        <InlineText content={document.attribution} />
       </p>
 
       <hr className="my-10 border-slate-300" />
 
       <h3 className="text-center text-xl font-bold">{STANDARD_TERMS_TITLE}</h3>
-      <ol className="mt-6 space-y-4">
-        {template.standardTerms.map((section) => (
-          <li key={section.number} className="text-justify">
-            {section.number}. <strong>{section.title}</strong>.{" "}
-            <InlineText content={section.body} />
-          </li>
-        ))}
-      </ol>
-      <p className="mt-6 text-xs text-slate-500">
-        <InlineText content={template.standardTermsAttribution} />
-      </p>
+      <ClauseList clauses={terms.clauses} />
+      {terms.attribution && (
+        <p className="mt-6 text-xs text-slate-500">
+          <InlineText content={terms.attribution} />
+        </p>
+      )}
     </article>
   );
 }

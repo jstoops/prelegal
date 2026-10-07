@@ -69,13 +69,13 @@ test.describe("sign in", () => {
 });
 
 test.describe("dashboard", () => {
-  test("lists the catalog with only the Mutual NDA available", async ({ page }) => {
+  test("lists every document, each with a Create link", async ({ page }) => {
     await signIn(page);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documents");
     const cards = page.getByRole("listitem");
     await expect(cards).toHaveCount(11);
-    await expect(page.getByRole("link", { name: /^Create / })).toHaveCount(1);
-    await expect(page.getByText("Coming soon")).toHaveCount(10);
+    await expect(page.getByRole("link", { name: /^Create / })).toHaveCount(11);
+    await expect(page.getByText("Coming soon")).toHaveCount(0);
     await expect(cards.first().getByRole("heading")).toHaveText("Mutual Non-Disclosure Agreement");
     await expectNoAxeViolations(page);
   });
@@ -83,8 +83,8 @@ test.describe("dashboard", () => {
   test("opens the Mutual NDA creator and comes back", async ({ page }) => {
     await signIn(page);
     await page.getByRole("link", { name: "Create Mutual Non-Disclosure Agreement" }).click();
-    await expect(page).toHaveURL("/app/nda/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mutual NDA Creator");
+    await expect(page).toHaveURL("/app/create/?doc=mutual-nda");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mutual Non-Disclosure Agreement");
     await expect(page.getByRole("banner").getByText("jane@acme.com")).toBeVisible();
     await page.getByRole("link", { name: "Prelegal" }).click();
     await expect(page).toHaveURL("/app/");
@@ -98,16 +98,23 @@ test.describe("dashboard", () => {
     await expect(page.getByRole("banner").getByText("jane@acme.com")).toHaveCount(0);
   });
 
+  test("asks the assistant when the user isn't sure which document they need", async ({ page }) => {
+    await signIn(page);
+    await page.getByRole("link", { name: "Ask the assistant" }).click();
+    await expect(page).toHaveURL("/app/create/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("New Document");
+  });
+
   test("redirects paths without a trailing slash", async ({ page }) => {
-    await page.goto("/app/nda");
-    await expect(page).toHaveURL("/app/nda/");
+    await page.goto("/app/create");
+    await expect(page).toHaveURL("/app/create/");
   });
 });
 
 test.describe("phone layout", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  for (const path of ["/", "/app/", "/app/nda/"]) {
+  for (const path of ["/", "/app/", "/app/create/", "/app/create/?doc=professional-services-agreement"]) {
     test(`${path} has no horizontal scroll`, async ({ page }) => {
       await signIn(page, "a.very.long.email.address@example-company.com");
       await page.goto(path);

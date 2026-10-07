@@ -10,7 +10,7 @@ The available documents are covered in the catalog.json file in the project root
 
 @catalog.json
 
-So far only the Mutual NDA can be created, by chatting with an AI assistant that fills it in. See "Implementation status" below.
+All 11 documents can be created by chatting with an AI assistant. It works out which one the user needs, or offers the closest one for unsupported requests, and fills it in. See "Implementation status" below.
 
 ## Development process
 
@@ -76,7 +76,11 @@ White on Orange Primary is 4.4:1, below WCAG AA (4.5:1), so primary buttons rest
   - **Config:** `Settings.from_env()` loads the repo's `.env` for local runs, and real environment variables take precedence. `create_app(settings, complete=...)` takes a fake LLM in tests.
   - **Frontend:** `NdaChat` (in the left panel of `NdaCreator`) requests an LLM greeting on load and keeps the conversation in memory. `lib/chat.ts` is the API client. The Effective Date shows today until the AI sets one. `NdaForm` was removed.
   - **Tests:** the automated tests never call the real LLM. Playwright mocks `/api/chat` with `page.route`, and its server runs with an empty `OPENROUTER_API_KEY`.
-- **Not yet built:** real sign-up/sign-in and a users table (`/api/chat` is unauthenticated and not rate-limited), saving conversations or documents, and documents other than the Mutual NDA.
+- **PL-6:** All documents in the catalog, through one generic engine (the NDA was migrated onto it):
+  - **`documents.json`** (repo root, read by both backend and frontend) defines each document. That covers its id, name, description, Standard Terms file, party roles (e.g. Provider/Customer), cover-page intro, signing statement, CC BY attribution, PDF slug, and curated Cover Page `fields`. Field kinds are text, longtext, date (blank means today), years and choice. A choice option can embed a years field as `{key}`, and fields with the same `section` share one heading. Optional fields can set `emptyText`, and every field has `guidance` for the LLM. Only the NDA template has a cover page in `templates/`; the others' cover pages are built from these fields. Tests check it covers every `catalog.json` template.
+  - **Backend:** `documents.py` (definitions, validation, merge, document switching, a per-document structured-output model via `create_model`) and `chat.py` (prompt and turn) replace `nda.py`. `/api/chat` data is `{documentId, fields, parties}` with `documentId: null` until chosen. The request is normalized (unknown documents/fields or invalid values → 422; missing fields → defaults). The no-document prompt lists the catalog and handles unsupported requests by offering the closest document. The fill prompt lists the fields, the pre-filled terms (which the assistant must confirm with the user in its first questions), and the missing fields by party role. If a turn picks or switches the document, the LLM is called again with the new document's prompt. Switching carries over the parties and any user-changed values with matching keys. `PRELEGAL_DOCUMENTS_FILE` overrides the path (Docker sets it).
+  - **Frontend:** `/app/create/` is the one creator (`/app/nda/` was removed). `?doc=<id>` preselects a document and is read client-side in `CreatorFromUrl` under `<Suspense>`. Without it the chat picks one. Dashboard cards all have Create, plus "Ask the assistant". `lib/template.ts` parses all templates into nested clauses (1., 1.1, (a), (i)) and is strict. `lib/document.ts` holds the shared model and cover-page helpers. `DocumentCreator`/`DocumentChat`/`DocumentPreview`/`DocumentPdf` replace the `Nda*` components.
+- **Not yet built:** real sign-up/sign-in and a users table (`/api/chat` is unauthenticated and not rate-limited), and saving conversations or documents.
 
 ## Testing
 

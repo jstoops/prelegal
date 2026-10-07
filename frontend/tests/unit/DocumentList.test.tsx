@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import DocumentList from "@/components/DocumentList";
 
 const documents = [
-  { name: "Mutual Non-Disclosure Agreement", description: "Share secrets.", href: "/app/nda/" },
-  { name: "Pilot Agreement", description: "Try before you buy." },
+  { id: "mutual-nda", name: "Mutual Non-Disclosure Agreement", description: "Share secrets." },
+  { id: "pilot-agreement", name: "Pilot Agreement", description: "Try before you buy." },
 ];
 
 describe("DocumentList", () => {
@@ -18,18 +18,16 @@ describe("DocumentList", () => {
     expect(within(items[1]).getByText("Try before you buy.")).toBeInTheDocument();
   });
 
-  it("links available documents to their creator", () => {
+  it("links every document to the creator with it preselected", () => {
     render(<DocumentList documents={documents} />);
-    expect(
-      screen.getByRole("link", { name: "Create Mutual Non-Disclosure Agreement" }),
-    ).toHaveAttribute("href", expect.stringMatching(/^\/app\/nda\/?$/)); // see AppHeader.test
-  });
-
-  it("marks the others as coming soon, without a link", () => {
-    render(<DocumentList documents={documents} />);
-    const pilot = within(screen.getAllByRole("listitem")[1]);
-    expect(pilot.getByText("Coming soon")).toBeInTheDocument();
-    expect(pilot.queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Create Mutual Non-Disclosure Agreement" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/app\/create\/?\?doc=mutual-nda$/), // see AppHeader.test
+    );
+    expect(screen.getByRole("link", { name: "Create Pilot Agreement" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/app\/create\/?\?doc=pilot-agreement$/),
+    );
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
   });
 });

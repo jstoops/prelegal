@@ -1,26 +1,17 @@
 /**
- * PDF version of the Mutual NDA. Mirrors NdaPreview using the same derived
- * cover-page content; loaded on demand when the user downloads.
+ * PDF version of a document. Mirrors DocumentPreview using the same derived
+ * Cover Page content; loaded on demand when the user downloads.
  */
-import {
-  Document,
-  Font,
-  Link,
-  Page,
-  StyleSheet,
-  Text,
-  View,
-} from "@react-pdf/renderer";
+import { Document, Font, Link, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import type { CreatorDocument } from "@/lib/catalog";
 import {
   coverPageSections,
-  NDA_TITLE,
-  PARTY_HEADINGS,
+  partyHeadings,
   partyRows,
-  SIGNING_STATEMENT,
   STANDARD_TERMS_TITLE,
-  type NdaData,
-} from "@/lib/nda";
-import type { Inline, NdaTemplate } from "@/lib/nda-template";
+  type DocumentData,
+} from "@/lib/document";
+import type { Clause, Inline } from "@/lib/template";
 
 // Never hyphenate words across lines; it reads poorly in legal text.
 Font.registerHyphenationCallback((word) => [word]);
@@ -81,48 +72,62 @@ const styles = StyleSheet.create({
   signingStatement: { marginTop: 12 },
   small: { fontSize: 8.5, color: MUTED, marginTop: 10 },
   termsTitle: { fontFamily: "Times-Bold", fontSize: 15, textAlign: "center", marginBottom: 10 },
-  termSection: { marginTop: 7, textAlign: "justify" },
+  clause: { marginTop: 7, textAlign: "justify" },
+  subClause: { marginTop: 4, marginLeft: 14, textAlign: "justify" },
 });
 
 function PdfInline({ content }: { content: Inline[] }) {
   return content.map((part, i) => {
+    const bold = part.bold ? styles.bold : {};
     switch (part.kind) {
-      case "bold":
-        return <Text key={i} style={styles.bold}>{part.text}</Text>;
       case "term":
         return <Text key={i} style={styles.term}>{part.text}</Text>;
       case "link":
-        return <Link key={i} src={part.href} style={styles.link}>{part.text}</Link>;
+        return <Link key={i} src={part.href} style={[styles.link, bold]}>{part.text}</Link>;
       default:
-        return part.text;
+        return part.bold ? <Text key={i} style={bold}>{part.text}</Text> : part.text;
     }
   });
 }
 
-interface NdaPdfDocumentProps {
-  data: NdaData;
-  template: NdaTemplate;
+function PdfClauses({ clauses, depth = 0 }: { clauses: Clause[]; depth?: number }) {
+  return clauses.map((clause) => (
+    <View key={clause.label} style={depth === 0 ? styles.clause : styles.subClause}>
+      <Text>
+        {clause.label} {clause.heading && <Text style={styles.bold}>{clause.heading} </Text>}
+        <PdfInline content={clause.body} />
+      </Text>
+      {clause.children.length > 0 && <PdfClauses clauses={clause.children} depth={depth + 1} />}
+    </View>
+  ));
 }
 
-export default function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) {
+interface DocumentPdfProps {
+  document: CreatorDocument;
+  /** The document's data, with blank dates already shown as today. */
+  data: DocumentData;
+}
+
+export default function DocumentPdf({ document, data }: DocumentPdfProps) {
+  const { definition, terms } = document;
   return (
-    <Document title={NDA_TITLE} creator="Prelegal">
+    <Document title={definition.name} creator="Prelegal">
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.title}>{NDA_TITLE}</Text>
+        <Text style={styles.title}>{definition.name}</Text>
         <Text>
-          <PdfInline content={template.coverIntro} />
+          <PdfInline content={document.intro} />
         </Text>
 
         {/* Sections may break across pages (long user text must never be
             clipped); minPresenceAhead keeps headings off the page bottom. */}
-        {coverPageSections(data).map((section) => (
+        {coverPageSections(definition, data).map((section) => (
           <View key={section.heading}>
             <Text style={styles.heading} minPresenceAhead={40}>
               {section.heading}
             </Text>
             {section.label && <Text style={styles.label}>{section.label}</Text>}
-            {section.lines?.map((line) => (
-              <Text key={line} style={styles.paragraph}>{line}</Text>
+            {section.lines?.map((line, i) => (
+              <Text key={i} style={styles.paragraph}>{line}</Text>
             ))}
             {section.options?.map((option) => (
               <View key={option.text} style={styles.option} wrap={false}>
@@ -138,11 +143,11 @@ export default function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) 
         ))}
 
         <View wrap={false}>
-          <Text style={styles.signingStatement}>{SIGNING_STATEMENT}</Text>
+          <Text style={styles.signingStatement}>{definition.signingStatement}</Text>
           <View style={styles.table}>
             <View style={styles.row}>
               <Text style={[styles.cell, styles.labelCell]} />
-              {PARTY_HEADINGS.map((heading) => (
+              {partyHeadings(definition).map((heading) => (
                 <Text key={heading} style={[styles.cell, styles.bold]}>
                   {heading}
                 </Text>
@@ -166,22 +171,19 @@ export default function NdaPdfDocument({ data, template }: NdaPdfDocumentProps) 
             ))}
           </View>
           <Text style={styles.small}>
-            <PdfInline content={template.coverAttribution} />
+            <PdfInline content={document.attribution} />
           </Text>
         </View>
       </Page>
 
       <Page size="LETTER" style={styles.page}>
         <Text style={styles.termsTitle}>{STANDARD_TERMS_TITLE}</Text>
-        {template.standardTerms.map((section) => (
-          <Text key={section.number} style={styles.termSection}>
-            {section.number}. <Text style={styles.bold}>{section.title}</Text>.{" "}
-            <PdfInline content={section.body} />
+        <PdfClauses clauses={terms.clauses} />
+        {terms.attribution && (
+          <Text style={styles.small}>
+            <PdfInline content={terms.attribution} />
           </Text>
-        ))}
-        <Text style={styles.small}>
-          <PdfInline content={template.standardTermsAttribution} />
-        </Text>
+        )}
       </Page>
     </Document>
   );

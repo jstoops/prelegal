@@ -1,60 +1,43 @@
-import json
 from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
+from prelegal_backend.chat import GREETING_REQUEST, MAX_MESSAGES
+from prelegal_backend.config import REPO_ROOT
+from prelegal_backend.documents import load_catalog
 from prelegal_backend.llm import LlmError, LlmNotConfigured
-from prelegal_backend.nda import (
-    GREETING_REQUEST,
-    MAX_FIELD_LENGTH,
-    MAX_MESSAGES,
-    MAX_TEXT_LENGTH,
-    NdaData,
-    NdaUpdates,
-    PartyUpdates,
-    apply_updates,
-)
 
 from conftest import FakeLlm
 
+CATALOG = load_catalog(REPO_ROOT / "documents.json")
 EMPTY_PARTY = {"printName": "", "title": "", "company": "", "noticeAddress": ""}
+FULL_PARTY = {"printName": "Jane Doe", "title": "CEO", "company": "Acme", "noticeAddress": "a@b.c"}
 
-# Same shape as defaultNdaData() in frontend/lib/nda.ts.
-DEFAULT_DATA = {
-    "purpose": "Evaluating whether to enter into a business relationship with the other party.",
-    "effectiveDate": "",
-    "mndaTermType": "fixed",
-    "mndaTermYears": 1,
-    "confidentialityType": "fixed",
-    "confidentialityYears": 1,
-    "governingLaw": "",
-    "jurisdiction": "",
-    "modifications": "",
-    "parties": [EMPTY_PARTY, EMPTY_PARTY],
-}
+NO_DOCUMENT = {"documentId": None, "fields": {}, "parties": [EMPTY_PARTY, EMPTY_PARTY]}
+
+
+def doc_data(document_id: str, parties=(EMPTY_PARTY, EMPTY_PARTY), **fields) -> dict:
+    """A document's data as the frontend sends it: every field, defaults filled in."""
+    defaults = CATALOG.get(document_id).defaults()
+    return {"documentId": document_id, "fields": defaults | fields, "parties": list(parties)}
+
+
+NDA = doc_data("mutual-nda")
 
 
 def chat(client: TestClient, messages=(), data=None, **extra):
-    body = {"messages": list(messages), "data": data or DEFAULT_DATA, **extra}
+    body = {"messages": list(messages), "data": data or NDA, **extra}
     return client.post("/api/chat", json=body)
-
-
-def updates(**fields) -> NdaUpdates:
-    return NdaUpdates.model_validate({name: None for name in NdaUpdates.model_fields} | fields)
-
-
-def party_updates(**fields) -> PartyUpdates:
-    return PartyUpdates.model_validate({name: None for name in PartyUpdates.model_fields} | fields)
 
 
 class TestChatEndpoint:
     def test_greets_when_there_is_no_history(self, chat_client: TestClient, fake_llm: FakeLlm):
-        fake_llm.output = {"reply": "Hi! Who are the two parties?", "updates": {}}
+        fake_llm.outputs = [{"reply": "Hi! Who are the two parties?"}]
         response = chat(chat_client, today="2026-10-05")
 
         assert response.status_code == 200
-        assert response.json() == {"reply": "Hi! Who are the two parties?", "data": DEFAULT_DATA}
+        assert response.json() == {"reply": "Hi! Who are the two parties?", "data": NDA}
         [messages] = fake_llm.calls
         assert [m["role"] for m in messages] == ["system", "user"]
         assert messages[1]["content"] == GREETING_REQUEST
@@ -62,12 +45,11 @@ class TestChatEndpoint:
     def test_sends_history_current_data_and_today_to_the_llm(
         self, chat_client: TestClient, fake_llm: FakeLlm
     ):
-        data = {**DEFAULT_DATA, "governingLaw": "Delaware"}
         history = [
             {"role": "assistant", "content": "Who are the parties?"},
             {"role": "user", "content": "Acme and Globex."},
         ]
-        chat(chat_client, history, data, today="2026-10-05")
+        chat(chat_client, history, doc_data("mutual-nda", governingLaw="Delaware"), today="2026-10-05")
 
         [messages] = fake_llm.calls
         system, *rest = messages
@@ -79,35 +61,36 @@ class TestChatEndpoint:
         self, chat_client: TestClient, fake_llm: FakeLlm
     ):
         chat(chat_client)
-        assert f"Today is {date.today():%A}, {date.today().isoformat()}." in fake_llm.calls[0][0]["content"]
+        today = date.today()
+        assert f"Today is {today:%A}, {today.isoformat()}." in fake_llm.prompts[0]
 
-    def test_applies_the_llm_updates_and_returns_camel_case_data(
-        self, chat_client: TestClient, fake_llm: FakeLlm
-    ):
-        fake_llm.output = {
-            "reply": "Got it.",
-            "updates": {
-                "governing_law": "Delaware",
-                "mnda_term_type": "open",
-                "effective_date": "2027-01-15",
-                "party2": {
-                    "print_name": None,
-                    "title": None,
-                    "company": "Globex LLC",
-                    "notice_address": None,
+    def test_fills_in_missing_fields_with_defaults(self, chat_client: TestClient):
+        partial = {**NDA, "fields": {"governingLaw": "Delaware"}}
+        response = chat(chat_client, data=partial)
+        assert response.json()["data"] == doc_data("mutual-nda", governingLaw="Delaware")
+
+    def test_applies_the_llm_updates(self, chat_client: TestClient, fake_llm: FakeLlm):
+        fake_llm.outputs = [
+            {
+                "reply": "Got it.",
+                "updates": {
+                    "governingLaw": "Delaware",
+                    "mndaTermType": "open",
+                    "effectiveDate": "2027-01-15",
+                    "party2": {"company": "Globex LLC"},
                 },
-            },
-        }
+            }
+        ]
         response = chat(chat_client)
 
         assert response.status_code == 200
-        assert response.json()["data"] == {
-            **DEFAULT_DATA,
-            "governingLaw": "Delaware",
-            "mndaTermType": "open",
-            "effectiveDate": "2027-01-15",
-            "parties": [EMPTY_PARTY, {**EMPTY_PARTY, "company": "Globex LLC"}],
-        }
+        assert response.json()["data"] == doc_data(
+            "mutual-nda",
+            parties=(EMPTY_PARTY, {**EMPTY_PARTY, "company": "Globex LLC"}),
+            governingLaw="Delaware",
+            mndaTermType="open",
+            effectiveDate="2027-01-15",
+        )
 
     def test_missing_api_key_is_503(self, chat_client: TestClient, fake_llm: FakeLlm):
         fake_llm.error = LlmNotConfigured("no key")
@@ -124,7 +107,7 @@ class TestChatEndpoint:
         assert response.json() == {"detail": "The AI assistant is unavailable. Please try again."}
 
     def test_blank_reply_is_502(self, chat_client: TestClient, fake_llm: FakeLlm):
-        fake_llm.output = {"reply": "  ", "updates": {}}
+        fake_llm.outputs = [{"reply": "  "}]
         assert chat(chat_client).status_code == 502
 
     @pytest.mark.parametrize(
@@ -134,19 +117,21 @@ class TestChatEndpoint:
             {"messages": [{"role": "user", "content": ""}]},
             {"messages": [{"role": "user", "content": "x" * 4001}]},
             {"messages": [{"role": "user", "content": "hi"}] * (MAX_MESSAGES + 1)},
-            {"data": {**DEFAULT_DATA, "confidentialityYears": 0}},
-            {"data": {**DEFAULT_DATA, "mndaTermYears": 100}},
-            {"data": {**DEFAULT_DATA, "parties": [EMPTY_PARTY]}},
+            {"data": doc_data("mutual-nda", confidentialityYears=0)},
+            {"data": doc_data("mutual-nda", mndaTermYears=True)},
+            {"data": doc_data("mutual-nda", effectiveDate="2027-02-30")},
+            {"data": doc_data("mutual-nda", governingLaw="x" * 301)},
+            {"data": doc_data("mutual-nda", cloudService="Unknown field")},
+            {"data": {**NDA, "documentId": "residential-lease"}},
+            {"data": {**NO_DOCUMENT, "fields": {"purpose": "x"}}},
+            {"data": {**NDA, "parties": [EMPTY_PARTY]}},
+            {"data": {**NDA, "parties": [{**EMPTY_PARTY, "company": "x" * 301}, EMPTY_PARTY]}},
             {"today": "not a date"},
             {"today": "9999-12-31"},
-            {"data": {**DEFAULT_DATA, "purpose": "x" * (MAX_TEXT_LENGTH + 1)}},
-            {"data": {**DEFAULT_DATA, "governingLaw": "x" * (MAX_FIELD_LENGTH + 1)}},
-            {"data": {**DEFAULT_DATA, "effectiveDate": "2027-02-30"}},
-            {"data": {**DEFAULT_DATA, "parties": [{**EMPTY_PARTY, "company": "x" * 301}, EMPTY_PARTY]}},
         ],
     )
     def test_rejects_invalid_requests(self, chat_client: TestClient, fake_llm: FakeLlm, body):
-        response = chat_client.post("/api/chat", json={"messages": [], "data": DEFAULT_DATA, **body})
+        response = chat_client.post("/api/chat", json={"messages": [], "data": NDA, **body})
         assert response.status_code == 422
         assert fake_llm.calls == []
 
@@ -156,104 +141,141 @@ class TestChatEndpoint:
         assert response.json() == {"detail": "Not Found"}
 
 
-class TestApplyUpdates:
-    data = NdaData.model_validate(DEFAULT_DATA)
+class TestChoosingADocument:
+    def test_asks_what_the_user_needs_with_the_catalog(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        fake_llm.outputs = [{"reply": "What do you need?"}]
+        response = chat(chat_client, data=NO_DOCUMENT)
 
-    def test_null_updates_change_nothing(self):
-        assert apply_updates(self.data, updates()) == self.data
+        assert response.json() == {"reply": "What do you need?", "data": NO_DOCUMENT}
+        [prompt] = fake_llm.prompts
+        assert "No document has been chosen yet." in prompt
+        assert "isn't in the list" in prompt
+        for doc in CATALOG.documents:
+            assert f"- {doc.id}: {doc.name} - {doc.description}" in prompt
+        # Only the document choice and the reply: there are no fields yet.
+        assert set(fake_llm.models[0].model_fields) == {"documentId", "reply"}
 
-    def test_strips_text_and_allows_clearing(self):
-        data = self.data.model_copy(update={"modifications": "Old"})
-        result = apply_updates(data, updates(jurisdiction="  Austin, TX ", modifications=""))
-        assert result.jurisdiction == "Austin, TX"
-        assert result.modifications == ""
+    def test_choosing_a_document_asks_again_with_its_prompt(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        fake_llm.outputs = [
+            {"documentId": "cloud-service-agreement", "reply": "Discarded"},
+            {"reply": "Let's draft your CSA.", "updates": {"party1": {"company": "Acme"}}},
+        ]
+        history = [{"role": "user", "content": "I sell SaaS, Acme is us."}]
+        response = chat(chat_client, history, NO_DOCUMENT)
 
-    def test_updates_only_the_given_party_fields(self):
-        result = apply_updates(
-            self.data,
-            updates(party1=party_updates(company="Acme, Inc.", print_name="Jane Doe")),
+        body = response.json()
+        assert body["reply"] == "Let's draft your CSA."
+        assert body["data"] == doc_data(
+            "cloud-service-agreement", parties=({**EMPTY_PARTY, "company": "Acme"}, EMPTY_PARTY)
         )
-        assert result.parties[0].company == "Acme, Inc."
-        assert result.parties[0].print_name == "Jane Doe"
-        assert result.parties[0].title == ""
-        assert result.parties[1] == self.data.parties[1]
+        assert len(fake_llm.calls) == 2
+        assert "The user is drafting a Cloud Service Agreement." in fake_llm.prompts[1]
+        assert fake_llm.calls[1][1:] == history
 
-    @pytest.mark.parametrize("years", [0, 100, -3])
-    def test_ignores_out_of_range_years(self, years: int):
-        result = apply_updates(
-            self.data, updates(mnda_term_years=years, confidentiality_years=years)
+    def test_switching_documents_carries_over_what_the_user_chose(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        fake_llm.outputs = [
+            # Updates for the old document are dropped along with it.
+            {"documentId": "pilot-agreement", "reply": "x", "updates": {"purpose": "Ignored"}},
+            {"reply": "Switched."},
+        ]
+        data = doc_data("mutual-nda", parties=(FULL_PARTY, EMPTY_PARTY), governingLaw="Delaware")
+        response = chat(chat_client, [{"role": "user", "content": "Make it a pilot"}], data)
+
+        assert response.json()["data"] == doc_data(
+            "pilot-agreement", parties=(FULL_PARTY, EMPTY_PARTY), governingLaw="Delaware"
         )
-        assert (result.mnda_term_years, result.confidentiality_years) == (1, 1)
 
-    def test_accepts_valid_years_and_term_types(self):
-        result = apply_updates(
-            self.data,
-            updates(mnda_term_years=2, confidentiality_type="open", confidentiality_years=5),
+    def test_a_second_switch_in_one_turn_is_ignored(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        fake_llm.outputs = [
+            {"documentId": "pilot-agreement", "reply": "x"},
+            {"documentId": "ai-addendum", "reply": "Pilot it is."},
+        ]
+        response = chat(chat_client, data=NO_DOCUMENT)
+        assert response.json()["data"]["documentId"] == "pilot-agreement"
+        assert len(fake_llm.calls) == 2
+
+    def test_keeping_the_same_document_asks_once(self, chat_client: TestClient, fake_llm: FakeLlm):
+        fake_llm.outputs = [{"documentId": "mutual-nda", "reply": "Same one."}]
+        assert chat(chat_client).json()["reply"] == "Same one."
+        assert len(fake_llm.calls) == 1
+
+
+class TestFillPrompt:
+    def test_describes_the_document_and_its_parties(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        chat(chat_client, data=doc_data("business-associate-agreement"))
+        [prompt] = fake_llm.prompts
+        assert "The user is drafting a Business Associate Agreement." in prompt
+        assert "The two parties are Provider (party1) and Company (party2)." in prompt
+        assert "- agreement: Agreement (required) - " in prompt
+
+    def test_lists_pre_filled_terms_to_confirm(self, chat_client: TestClient, fake_llm: FakeLlm):
+        chat(chat_client, data=doc_data("mutual-nda", mndaTermYears=2))
+        [prompt] = fake_llm.prompts
+        assert "check the pre-filled terms above with the user" in prompt
+        assert (
+            "Pre-filled terms the user hasn't changed:\n"
+            "- Purpose: Evaluating whether to enter into a business relationship with the other party.\n"
+            "- Effective Date: today (unless the user gives a date)\n"
+            # Still the default choice, now showing the user's 2 years.
+            "- MNDA Term: Expires 2 years from Effective Date.\n"
+            "- Term of Confidentiality: 1 year from Effective Date, but in the case of trade "
+            "secrets until Confidential Information is no longer considered a trade secret "
+            "under applicable laws.\n"
+            "- MNDA Modifications: None. (optional)\n"
+        ) in prompt
+
+    def test_changed_terms_are_not_listed_as_pre_filled(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        chat(chat_client, data=doc_data("mutual-nda", purpose="Hiring", mndaTermType="open"))
+        prompt = fake_llm.prompts[0]
+        assert "- Purpose:" not in prompt
+        assert "- MNDA Term:" not in prompt
+
+    def test_lists_missing_fields(self, chat_client: TestClient, fake_llm: FakeLlm):
+        data = doc_data("mutual-nda", parties=(FULL_PARTY, {**EMPTY_PARTY, "company": "Globex"}))
+        chat(chat_client, data=data)
+        assert (
+            "Still missing: Party 2 signer's name, Party 2 signer's title, "
+            "Party 2 notice address, Governing Law, Jurisdiction." in fake_llm.prompts[0]
         )
-        assert result.mnda_term_years == 2
-        assert result.confidentiality_type == "open"
-        assert result.confidentiality_years == 5
 
-    @pytest.mark.parametrize("value", ["15/01/2027", "2027-02-30", "20270115", "soon"])
-    def test_ignores_invalid_dates(self, value: str):
-        data = self.data.model_copy(update={"effective_date": "2026-10-05"})
-        assert apply_updates(data, updates(effective_date=value)).effective_date == "2026-10-05"
+    def test_names_missing_party_fields_by_role(self, chat_client: TestClient, fake_llm: FakeLlm):
+        chat(chat_client, data=doc_data("design-partner-agreement", parties=(FULL_PARTY, EMPTY_PARTY)))
+        assert "Still missing: Partner company, Partner signer's name," in fake_llm.prompts[0]
 
-    def test_ignores_text_over_the_length_limits(self):
-        result = apply_updates(
-            self.data,
-            updates(
-                purpose="x" * (MAX_TEXT_LENGTH + 1),
-                jurisdiction="Austin, TX",
-                party2=party_updates(company="x" * (MAX_FIELD_LENGTH + 1), title="CTO"),
-            ),
+    def test_says_when_nothing_is_missing(self, chat_client: TestClient, fake_llm: FakeLlm):
+        data = doc_data(
+            "mutual-nda",
+            parties=(FULL_PARTY, FULL_PARTY),
+            governingLaw="Delaware",
+            jurisdiction="Wilmington, DE",
         )
-        assert result.purpose == self.data.purpose
-        assert result.jurisdiction == "Austin, TX"
-        assert result.parties[1].company == ""
-        assert result.parties[1].title == "CTO"
+        chat(chat_client, data=data)
+        assert "Still missing: nothing, the Mutual Non-Disclosure Agreement is complete." in (
+            fake_llm.prompts[0]
+        )
 
-    def test_does_not_modify_the_original(self):
-        apply_updates(self.data, updates(governing_law="Delaware", party1=party_updates(title="CEO")))
-        assert self.data == NdaData.model_validate(DEFAULT_DATA)
+    def test_lists_the_next_two_weeks(self, chat_client: TestClient, fake_llm: FakeLlm):
+        chat(chat_client, today="2026-10-06")
+        prompt = fake_llm.prompts[0]
+        assert "Today is Tuesday, 2026-10-06." in prompt
+        assert "- Monday: 2026-10-12" in prompt
+        assert "- Tuesday: 2026-10-20" in prompt
+        assert "2026-10-21" not in prompt
 
-    def test_clearing_the_date_resets_it_to_today(self):
-        data = self.data.model_copy(update={"effective_date": "2026-10-05"})
-        assert apply_updates(data, updates(effective_date="")).effective_date == ""
-
-
-def test_llm_schema_is_strict_mode_friendly():
-    """Strict structured outputs need every property required and no numeric bounds."""
-    from prelegal_backend.nda import NdaChatOutput
-
-    schema = NdaChatOutput.model_json_schema()
-    for model in [schema, *schema["$defs"].values()]:
-        assert set(model["required"]) == set(model["properties"]), model["title"]
-    text = json.dumps(schema)
-    for keyword in ("minimum", "maximum", "prefixItems", "default"):
-        assert keyword not in text
-
-
-def test_prompt_lists_missing_fields(chat_client: TestClient, fake_llm: FakeLlm):
-    party = {"printName": "Jane Doe", "title": "CEO", "company": "Acme", "noticeAddress": "a@b.c"}
-    chat(chat_client, data={**DEFAULT_DATA, "parties": [party, {**EMPTY_PARTY, "company": "Globex"}]})
-    assert (
-        "Still missing: Party 2 signer's name, Party 2 signer's title, "
-        "Party 2 notice address, Governing Law, Jurisdiction." in fake_llm.calls[0][0]["content"]
-    )
-
-
-def test_prompt_says_when_nothing_is_missing(chat_client: TestClient, fake_llm: FakeLlm):
-    party = {"printName": "Jane Doe", "title": "CEO", "company": "Acme", "noticeAddress": "a@b.c"}
-    data = {**DEFAULT_DATA, "governingLaw": "Delaware", "jurisdiction": "Wilmington, DE"}
-    chat(chat_client, data={**data, "parties": [party, party]})
-    assert "Still missing: nothing, the NDA is complete." in fake_llm.calls[0][0]["content"]
-
-
-def test_prompt_lists_the_next_two_weeks(chat_client: TestClient, fake_llm: FakeLlm):
-    chat(chat_client, today="2026-10-06")
-    prompt = fake_llm.calls[0][0]["content"]
-    assert "Today is Tuesday, 2026-10-06." in prompt
-    assert "- Monday: 2026-10-12" in prompt
-    assert "- Tuesday: 2026-10-20" in prompt
-    assert "2026-10-21" not in prompt
+    @pytest.mark.parametrize("doc", CATALOG.documents, ids=lambda d: d.id)
+    def test_every_document_builds_a_prompt(self, chat_client: TestClient, fake_llm: FakeLlm, doc):
+        response = chat(chat_client, data=doc_data(doc.id))
+        assert response.status_code == 200
+        assert f"The user is drafting a {doc.name}." in fake_llm.prompts[0]
