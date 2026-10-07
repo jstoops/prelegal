@@ -76,9 +76,20 @@ export default function DocumentCreator({ documents, initialDocumentId }: Docume
       {/* Toolbar under the app header, so the download button stays in reach. */}
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <h1 className="text-lg font-semibold text-heading">
-            {document ? document.definition.name : "New Document"}
-          </h1>
+          <div className="flex min-w-0 items-center gap-3">
+            {/* The label includes the visible text, which phones hide to save room. */}
+            <Link
+              href="/app/"
+              aria-label="Back to all documents"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-raven shadow-sm hover:border-brand hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              <span aria-hidden>←</span>
+              <span className="hidden sm:inline">All documents</span>
+            </Link>
+            <h1 className="truncate text-lg font-semibold text-heading">
+              {document ? document.definition.name : "New Document"}
+            </h1>
+          </div>
           <div className="flex items-center gap-3">
             {/* Always mounted so screen readers reliably announce changes. */}
             <p

@@ -116,6 +116,14 @@ describe("DocumentCreator", () => {
       expect(preview().getByRole("heading", { name: "Mutual Non-Disclosure Agreement" })).toBeInTheDocument();
     });
 
+    it("links back to the document list", async () => {
+      await renderCreator();
+      expect(screen.getByRole("link", { name: "Back to all documents" })).toHaveAttribute(
+        "href",
+        expect.stringMatching(/^\/app\/?$/), // see AppHeader.test
+      );
+    });
+
     it("keeps an empty status region mounted for screen readers", async () => {
       await renderCreator();
       expect(screen.getByRole("status")).toBeEmptyDOMElement();

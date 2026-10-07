@@ -43,7 +43,7 @@ Run this before a release, or after changing the layout, the PDF, or the templat
 - [ ] `/` shows the Sign in screen. Submitting with an empty field shows the browser's "required" message.
 - [ ] Any email and password sign you in and open the dashboard at `/app/`, with your email in the header.
 - [ ] The dashboard lists 11 documents, each with a **Create** button, plus **Ask the assistant**.
-- [ ] **Create** on the Mutual NDA opens the creator at `/app/create/?doc=mutual-nda`, titled "Mutual Non-Disclosure Agreement". Clicking **Prelegal** in the header returns to the dashboard.
+- [ ] **Create** on the Mutual NDA opens the creator at `/app/create/?doc=mutual-nda`, titled "Mutual Non-Disclosure Agreement". **← All documents** next to the title (just the arrow on phones) returns to the dashboard, and so does **Prelegal** in the header.
 - [ ] **Ask the assistant** opens `/app/create/`, titled "New Document", with "No document chosen yet" in place of the preview.
 - [ ] **Sign out** returns to `/`, and the dashboard no longer shows your email.
 - [ ] An unknown URL (e.g. `/nope/`) shows "Page not found" with a link back to the documents.

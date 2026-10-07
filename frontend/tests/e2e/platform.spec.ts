@@ -98,6 +98,17 @@ test.describe("dashboard", () => {
     await expect(page.getByRole("banner").getByText("jane@acme.com")).toHaveCount(0);
   });
 
+  test("goes back to the document list from the creator", async ({ page }) => {
+    await signIn(page);
+    await page.getByRole("link", { name: "Create Pilot Agreement" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Pilot Agreement");
+    const back = page.getByRole("link", { name: "Back to all documents" });
+    await expect(back).toHaveText(/All documents/);
+    await back.click();
+    await expect(page).toHaveURL("/app/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documents");
+  });
+
   test("asks the assistant when the user isn't sure which document they need", async ({ page }) => {
     await signIn(page);
     await page.getByRole("link", { name: "Ask the assistant" }).click();
@@ -125,6 +136,12 @@ test.describe("phone layout", () => {
       expect(overflow).toBeLessThanOrEqual(0);
     });
   }
+
+  test("keeps the back link visible in the creator", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/app/create/?doc=professional-services-agreement");
+    await expect(page.getByRole("link", { name: "Back to all documents" })).toBeInViewport();
+  });
 
   test("keeps Sign out visible next to a long email", async ({ page }) => {
     await signIn(page, "a.very.long.email.address@example-company.com");
