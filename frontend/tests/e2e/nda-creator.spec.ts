@@ -10,28 +10,89 @@ test.beforeEach(async ({ page }) => {
 });
 
 const preview = (page: Page) => page.getByRole("region", { name: "NDA preview" });
-const party = (page: Page, n: 1 | 2) => page.getByRole("group", { name: `Party ${n}` });
+const chatLog = (page: Page) => page.getByRole("log", { name: "Conversation with the assistant" });
+const messageBox = (page: Page) => page.getByRole("textbox", { name: "Message the assistant" });
 
-async function fillForm(page: Page) {
-  await page.getByLabel("Purpose").fill("Exploring a joint go-to-market partnership.");
-  await page.getByLabel("Effective date").fill("2027-01-15");
-  await page.getByLabel("Until terminated").check();
-  const confYears = page.getByLabel("Term of confidentiality in years");
-  await confYears.fill("3");
-  await page.getByLabel("Governing law").fill("Delaware");
-  await page.getByLabel("Jurisdiction").fill("New Castle, DE");
-  await page.getByLabel("MNDA modifications").fill("Retention limited to 90 days.");
-  const parties = [
-    { company: "Acme, Inc.", name: "Jane Doe", title: "CEO", address: "legal@acme.com" },
-    { company: "Globex LLC", name: "John Roe", title: "CTO", address: "1 Main St, Springfield" },
-  ];
-  for (const [i, p] of parties.entries()) {
-    const group = party(page, (i + 1) as 1 | 2);
-    await group.getByLabel("Company").fill(p.company);
-    await group.getByLabel("Signer name").fill(p.name);
-    await group.getByLabel("Title").fill(p.title);
-    await group.getByLabel("Notice address").fill(p.address);
-  }
+const GREETING = "Hi! I'll help you draft your Mutual NDA. Who are the two parties?";
+
+interface ChatBody {
+  messages: { role: "user" | "assistant"; content: string }[];
+  data: Record<string, unknown> & { parties: Record<string, string>[] };
+  today: string;
+}
+
+type Script = Record<string, { reply: string; updates?: object }>;
+
+/**
+ * Stands in for the LLM: the real backend has no API key in these tests, so
+ * `/api/chat` is answered in the browser. Each user message is looked up in
+ * `script`, and its updates are merged into the NDA the page sent.
+ */
+async function mockAssistant(page: Page, script: Script = {}) {
+  const requests: ChatBody[] = [];
+  await page.route("**/api/chat", async (route) => {
+    const body = route.request().postDataJSON() as ChatBody;
+    requests.push(body);
+    const last = body.messages.at(-1);
+    const turn = last ? (script[last.content] ?? { reply: "Noted." }) : { reply: GREETING };
+    await route.fulfill({ json: { reply: turn.reply, data: { ...body.data, ...turn.updates } } });
+  });
+  return requests;
+}
+
+const PARTIES =
+  "Acme, Inc. (Jane Doe, CEO, legal@acme.com) and Globex LLC (John Roe, CTO, 1 Main St, Springfield).";
+const TERMS =
+  "Joint go-to-market partnership, starting January 15, 2027, until terminated, confidential for 3 years.";
+const LAW = "Delaware law, courts in New Castle, DE. Retention limited to 90 days.";
+
+const FULL_SCRIPT: Script = {
+  [PARTIES]: {
+    reply: "Thanks! What's the purpose of the NDA?",
+    updates: {
+      parties: [
+        { company: "Acme, Inc.", printName: "Jane Doe", title: "CEO", noticeAddress: "legal@acme.com" },
+        { company: "Globex LLC", printName: "John Roe", title: "CTO", noticeAddress: "1 Main St, Springfield" },
+      ],
+    },
+  },
+  [TERMS]: {
+    reply: "Got it. Which state's law governs it?",
+    updates: {
+      purpose: "Exploring a joint go-to-market partnership.",
+      effectiveDate: "2027-01-15",
+      mndaTermType: "open",
+      confidentialityYears: 3,
+    },
+  },
+  [LAW]: {
+    reply: "All set! Review the preview and click Download PDF.",
+    updates: {
+      governingLaw: "Delaware",
+      jurisdiction: "New Castle, DE",
+      modifications: "Retention limited to 90 days.",
+    },
+  },
+};
+
+async function say(page: Page, text: string) {
+  await messageBox(page).fill(text);
+  await messageBox(page).press("Enter");
+  await expect(chatLog(page).getByText(FULL_SCRIPT[text].reply)).toBeVisible();
+}
+
+/** Opens the creator and waits for the assistant's greeting. */
+async function openCreator(page: Page, script: Script = {}) {
+  const requests = await mockAssistant(page, script);
+  await page.goto(NDA_PATH);
+  await expect(chatLog(page).getByText(GREETING)).toBeVisible();
+  return requests;
+}
+
+/** Opens the creator and fills in the whole NDA by chatting. */
+async function chatFullNda(page: Page) {
+  await openCreator(page, FULL_SCRIPT);
+  for (const text of [PARTIES, TERMS, LAW]) await say(page, text);
 }
 
 async function downloadPdf(page: Page): Promise<{ download: Download; text: string; pages: string[] }> {
@@ -57,7 +118,7 @@ test.describe("page load", () => {
     });
     page.on("pageerror", (err) => problems.push(err.message));
 
-    await page.goto(NDA_PATH);
+    await openCreator(page);
     await expect(page).toHaveTitle("Mutual NDA Creator | Prelegal");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mutual NDA Creator");
     await expect(preview(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
@@ -66,13 +127,13 @@ test.describe("page load", () => {
   });
 
   test("defaults the effective date to today in the browser's time zone", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await expect(page.getByLabel("Effective date")).toHaveValue("2026-10-05");
+    await openCreator(page);
     await expect(preview(page).getByText("October 5, 2026")).toBeVisible();
   });
 
   test("passes an automated accessibility scan (WCAG 2.1 AA)", async ({ page }) => {
-    await page.goto(NDA_PATH);
+    await openCreator(page, FULL_SCRIPT);
+    await say(page, PARTIES);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
@@ -80,10 +141,9 @@ test.describe("page load", () => {
   });
 });
 
-test.describe("form and live preview", () => {
-  test("reflects every field in the preview", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await fillForm(page);
+test.describe("AI chat and live preview", () => {
+  test("fills in every field of the preview from the conversation", async ({ page }) => {
+    await chatFullNda(page);
     const doc = preview(page);
     await expect(doc.getByText("Exploring a joint go-to-market partnership.")).toBeVisible();
     await expect(doc.getByText("January 15, 2027")).toBeVisible();
@@ -97,42 +157,49 @@ test.describe("form and live preview", () => {
     await expect(row("Print Name").getByRole("cell")).toHaveText(["Jane Doe", "John Roe"]);
   });
 
-  test("lets the user clear the effective date without it snapping back", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    const date = page.getByLabel("Effective date");
-    await date.fill("");
-    await expect(date).toHaveValue("");
-    await expect(preview(page).getByText("[Effective Date]")).toBeVisible();
-    await page.getByLabel("Governing law").fill("Delaware");
-    await expect(date).toHaveValue("");
+  test("sends the whole conversation, the current NDA and the local date", async ({ page }) => {
+    const requests = await openCreator(page, FULL_SCRIPT);
+    await say(page, PARTIES);
+    await say(page, TERMS);
+
+    expect(requests[0]).toMatchObject({ messages: [], today: "2026-10-05", data: { effectiveDate: "" } });
+    const last = requests.at(-1)!;
+    expect(last.messages.map((m) => m.role)).toEqual(["assistant", "user", "assistant", "user"]);
+    expect(last.data.parties[0].company).toBe("Acme, Inc.");
   });
 
-  test("validates the years input as the user types", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    const years = page.getByLabel("MNDA term in years");
-    await years.fill("");
-    await years.pressSequentially("12");
-    await expect(preview(page).getByText("Expires 12 years from Effective Date.")).toBeVisible();
+  test("shows errors from the assistant and retries", async ({ page }) => {
+    await openCreator(page, FULL_SCRIPT);
+    // Fail the next request only, then fall back to the scripted assistant.
+    let failed = false;
+    await page.route("**/api/chat", async (route) => {
+      if (failed) return route.fallback();
+      failed = true;
+      await route.fulfill({
+        status: 502,
+        json: { detail: "The AI assistant is unavailable. Please try again." },
+      });
+    });
+    await messageBox(page).fill(PARTIES);
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(chatLog(page).getByRole("alert")).toHaveText(/The AI assistant is unavailable/);
 
-    await years.fill("500");
-    await expect(page.getByText("Enter a whole number from 1 to 99.")).toBeVisible();
-    await expect(years).toHaveAttribute("aria-invalid", "true");
-    await expect(preview(page).getByText("Expires 12 years from Effective Date.")).toBeVisible();
-
-    await years.blur();
-    await expect(years).toHaveValue("12");
-    await expect(page.getByText("Enter a whole number from 1 to 99.")).toBeHidden();
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(chatLog(page).getByText(FULL_SCRIPT[PARTIES].reply)).toBeVisible();
+    await expect(chatLog(page).getByRole("alert")).toBeHidden();
+    await expect(chatLog(page).getByText(PARTIES)).toHaveCount(1);
+    const companies = preview(page).getByRole("row").filter({ has: page.getByRole("rowheader", { name: "Company" }) });
+    await expect(companies.getByRole("cell")).toHaveText(["Acme, Inc.", "Globex LLC"]);
   });
 
-  test("selects the fixed term when the years box is clicked", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await page.getByLabel("In perpetuity").check();
-    await page.getByLabel("Term of confidentiality in years").click();
-    await expect(page.getByLabel("Protected for")).toBeChecked();
+  test("explains when the real backend has no AI key configured", async ({ page }) => {
+    await page.goto(NDA_PATH); // not mocked: the e2e server runs without a key
+    await expect(chatLog(page).getByRole("alert")).toHaveText(/The AI assistant isn't configured\./);
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   });
 
   test("opens Common Paper links in a new tab", async ({ page, context }) => {
-    await page.goto(NDA_PATH);
+    await openCreator(page);
     const link = preview(page).getByRole("link", { name: "commonpaper.com/standards/mutual-nda/1.0" });
     await expect(link).toHaveAttribute("href", "https://commonpaper.com/standards/mutual-nda/1.0");
     await context.route("https://commonpaper.com/**", (route) => route.fulfill({ body: "ok" }));
@@ -144,8 +211,7 @@ test.describe("form and live preview", () => {
 
 test.describe("PDF download", () => {
   test("downloads the completed agreement as a PDF", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await fillForm(page);
+    await chatFullNda(page);
     const { download, text, pages } = await downloadPdf(page);
 
     expect(download.suggestedFilename()).toBe("Mutual-NDA-Acme-Inc-Globex-LLC.pdf");
@@ -171,17 +237,15 @@ test.describe("PDF download", () => {
   });
 
   test("downloads a blank-form PDF with placeholders and a generic name", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await page.getByLabel("Effective date").fill("");
+    await openCreator(page);
     const { download, text } = await downloadPdf(page);
     expect(download.suggestedFilename()).toBe("Mutual-NDA.pdf");
-    expect(text).toContain("[Effective Date]");
+    expect(text).toContain("October 5, 2026");
     expect(text).toContain("Governing Law: [Governing Law]");
   });
 
   test("works with the keyboard alone", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    await page.getByLabel("Governing law").fill("Delaware");
+    await openCreator(page);
     const button = page.getByRole("button", { name: "Download PDF" });
     await button.focus();
     await expect(button).toBeFocused();
@@ -196,7 +260,7 @@ test.describe("PDF download", () => {
         pdfChunks.push(res.url());
       }
     });
-    await page.goto(NDA_PATH);
+    await openCreator(page);
     await page.waitForLoadState("networkidle");
     expect(pdfChunks).toEqual([]);
     await downloadPdf(page);
@@ -207,11 +271,12 @@ test.describe("PDF download", () => {
 test.describe("responsive layout", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("stacks the form above the preview on phones with no horizontal scroll", async ({ page }) => {
-    await page.goto(NDA_PATH);
-    const formBox = await page.getByLabel("Purpose").boundingBox();
+  test("stacks the chat above the preview on phones with no horizontal scroll", async ({ page }) => {
+    await openCreator(page);
+    const chatBox = await chatLog(page).boundingBox();
     const previewBox = await preview(page).boundingBox();
-    expect(formBox!.y).toBeLessThan(previewBox!.y);
+    expect(chatBox!.y).toBeLessThan(previewBox!.y);
+    await expect(messageBox(page)).toBeInViewport();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

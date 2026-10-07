@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from prelegal_backend.config import Settings
 from prelegal_backend.main import create_app
+from prelegal_backend.nda import NdaUpdates
 
 
 @pytest.fixture
@@ -28,4 +29,31 @@ def settings(tmp_path: Path, static_dir: Path) -> Settings:
 def client(settings: Settings):
     # Entering the context runs the lifespan, which creates the database.
     with TestClient(create_app(settings)) as client:
+        yield client
+
+
+class FakeLlm:
+    """Stands in for the LLM: records each call and returns a canned output."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[dict[str, str]]] = []
+        self.output: dict = {"reply": "Hello!", "updates": {}}
+        self.error: Exception | None = None
+
+    def __call__(self, messages, response_model):
+        self.calls.append(messages)
+        if self.error:
+            raise self.error
+        updates = {field: None for field in NdaUpdates.model_fields} | self.output["updates"]
+        return response_model.model_validate({**self.output, "updates": updates})
+
+
+@pytest.fixture
+def fake_llm() -> FakeLlm:
+    return FakeLlm()
+
+
+@pytest.fixture
+def chat_client(settings: Settings, fake_llm: FakeLlm):
+    with TestClient(create_app(settings, complete=fake_llm)) as client:
         yield client

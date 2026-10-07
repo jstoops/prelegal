@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import NdaCreator from "@/components/NdaCreator";
-import type { NdaData } from "@/lib/nda";
+import { defaultNdaData, type NdaData } from "@/lib/nda";
 import { loadNdaTemplate, type NdaTemplate } from "@/lib/nda-template";
-import { TEMPLATES_DIR } from "../fixtures";
+import { mockChatApi, TEMPLATES_DIR, type ChatRequestBody } from "../fixtures";
 
 // The real PDF pipeline is covered by NdaPdfDocument.test.tsx and the e2e
 // tests; here we only verify how NdaCreator drives it.
@@ -46,94 +46,130 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const renderCreator = () => {
+/** The assistant greets, then applies `data` (merged onto the request's NDA) on each turn. */
+let assistantUpdates: Partial<NdaData>;
+let chatRequests: ChatRequestBody[];
+
+const renderCreator = async () => {
   render(<NdaCreator template={template} />);
+  await screen.findByText(GREETING);
   return userEvent.setup();
 };
 
-const dateInput = () => screen.getByLabelText(/^Effective date/);
+/** Sends a chat message and waits for the assistant's reply. */
+const say = async (user: ReturnType<typeof userEvent.setup>, updates: Partial<NdaData>) => {
+  assistantUpdates = updates;
+  const replies = screen.queryAllByText(REPLY).length;
+  await user.type(screen.getByRole("textbox", { name: "Message the assistant" }), "Here you go{Enter}");
+  await waitFor(() => expect(screen.getAllByText(REPLY)).toHaveLength(replies + 1));
+};
+
 const preview = () => within(screen.getByRole("region", { name: "NDA preview" }));
 const downloadButton = () => screen.getByRole("button", { name: /PDF/ });
 const lastPdfData = () => pdf.mock.lastCall![0].props.data;
 
+const GREETING = "Hi! Who are the two parties?";
+const REPLY = "Thanks, I've updated the NDA.";
+
+beforeEach(() => {
+  assistantUpdates = {};
+  chatRequests = mockChatApi(({ messages, data }) =>
+    messages.length === 0
+      ? { reply: GREETING, data }
+      : { reply: REPLY, data: { ...data, ...assistantUpdates } },
+  );
+});
+
 describe("NdaCreator", () => {
   describe("layout", () => {
-    it("has a single page title", () => {
-      renderCreator();
+    it("has a single page title", async () => {
+      await renderCreator();
       expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([
         "Mutual NDA Creator",
       ]);
     });
 
-    it("shows the form and the live preview", () => {
-      renderCreator();
-      expect(screen.getByLabelText(/^Purpose/)).toBeInTheDocument();
+    it("shows the chat and the live preview", async () => {
+      await renderCreator();
+      expect(screen.getByRole("log", { name: "Conversation with the assistant" })).toBeInTheDocument();
       expect(preview().getByRole("heading", { name: "Mutual Non-Disclosure Agreement" })).toBeInTheDocument();
     });
 
-    it("keeps an empty status region mounted for screen readers", () => {
-      renderCreator();
+    it("keeps an empty status region mounted for screen readers", async () => {
+      await renderCreator();
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
     });
   });
 
-  describe("live preview", () => {
-    it("updates the preview as the user types", async () => {
-      const user = renderCreator();
-      await user.type(screen.getByLabelText(/^Governing law/), "Delaware");
+  describe("chat and live preview", () => {
+    it("starts the chat with the default NDA", async () => {
+      await renderCreator();
+      expect(chatRequests).toEqual([
+        { messages: [], data: defaultNdaData(), today: "2026-10-05" },
+      ]);
+    });
+
+    it("updates the preview from the assistant's replies", async () => {
+      const user = await renderCreator();
+      await say(user, { governingLaw: "Delaware", mndaTermType: "open" });
       expect(preview().getByText("Governing Law: Delaware")).toBeInTheDocument();
-      await user.click(screen.getByLabelText("Until terminated"));
       expect(preview().getByText(/Continues until terminated/).closest("li")).toHaveTextContent("☒");
     });
 
     it("shows party details in the signature table", async () => {
-      const user = renderCreator();
-      const party1 = within(screen.getByRole("group", { name: "Party 1" }));
-      await user.type(party1.getByLabelText(/^Company/), "Acme, Inc.");
+      const user = await renderCreator();
+      const [party1, party2] = defaultNdaData().parties;
+      await say(user, { parties: [{ ...party1, company: "Acme, Inc." }, party2] });
       const row = preview().getByRole("rowheader", { name: "Company" }).closest("tr")!;
       expect(within(row).getAllByRole("cell")[0]).toHaveTextContent("Acme, Inc.");
+    });
+
+    it("sends the updated NDA with the next message", async () => {
+      const user = await renderCreator();
+      await say(user, { governingLaw: "Delaware" });
+      await say(user, {});
+      expect(chatRequests.at(-1)!.data.governingLaw).toBe("Delaware");
     });
   });
 
   describe("effective date", () => {
-    it("defaults to today in the user's time zone", () => {
-      renderCreator();
-      expect(dateInput()).toHaveValue("2026-10-05");
+    it("defaults to today in the user's time zone", async () => {
+      await renderCreator();
       expect(preview().getByText("October 5, 2026")).toBeInTheDocument();
     });
 
-    it("keeps defaulting to today while other fields are edited", async () => {
-      const user = renderCreator();
-      await user.type(screen.getByLabelText(/^Jurisdiction/), "Austin, TX");
-      expect(dateInput()).toHaveValue("2026-10-05");
+    it("tells the assistant the date is unset rather than sending today", async () => {
+      const user = await renderCreator();
+      await say(user, { jurisdiction: "Austin, TX" });
+      expect(chatRequests.at(-1)!.data.effectiveDate).toBe("");
+      expect(preview().getByText("October 5, 2026")).toBeInTheDocument();
     });
 
-    it("uses the date the user picks", () => {
-      renderCreator();
-      fireEvent.change(dateInput(), { target: { value: "2027-01-15" } });
-      expect(dateInput()).toHaveValue("2027-01-15");
+    it("uses the date the assistant sets", async () => {
+      const user = await renderCreator();
+      await say(user, { effectiveDate: "2027-01-15" });
       expect(preview().getByText("January 15, 2027")).toBeInTheDocument();
     });
 
-    it("lets the user clear the date without it snapping back to today", async () => {
-      const user = renderCreator();
-      fireEvent.change(dateInput(), { target: { value: "" } });
-      expect(dateInput()).toHaveValue("");
-      expect(preview().getByText("[Effective Date]")).toBeInTheDocument();
-      // Editing something else must not bring the default back.
-      await user.type(screen.getByLabelText(/^Jurisdiction/), "X");
-      expect(dateInput()).toHaveValue("");
+    it("goes back to today if the assistant clears the date", async () => {
+      const user = await renderCreator();
+      await say(user, { effectiveDate: "2027-01-15" });
+      await say(user, { effectiveDate: "" });
+      expect(preview().getByText("October 5, 2026")).toBeInTheDocument();
     });
   });
 
   describe("PDF download", () => {
-    it("generates the PDF from the current form data and downloads it", async () => {
-      const user = renderCreator();
-      const party1 = within(screen.getByRole("group", { name: "Party 1" }));
-      const party2 = within(screen.getByRole("group", { name: "Party 2" }));
-      await user.type(party1.getByLabelText(/^Company/), "Acme, Inc.");
-      await user.type(party2.getByLabelText(/^Company/), "Globex LLC");
-      await user.type(screen.getByLabelText(/^Governing law/), "Delaware");
+    it("generates the PDF from the current NDA and downloads it", async () => {
+      const user = await renderCreator();
+      const [party1, party2] = defaultNdaData().parties;
+      await say(user, {
+        governingLaw: "Delaware",
+        parties: [
+          { ...party1, company: "Acme, Inc." },
+          { ...party2, company: "Globex LLC" },
+        ],
+      });
 
       await user.click(downloadButton());
 
@@ -152,15 +188,15 @@ describe("NdaCreator", () => {
     });
 
     it("passes the template through to the PDF", async () => {
-      const user = renderCreator();
+      const user = await renderCreator();
       await user.click(downloadButton());
       await waitFor(() => expect(pdf).toHaveBeenCalled());
       expect(pdf.mock.lastCall![0].props).toMatchObject({ template });
     });
 
-    it("uses a user-chosen date in the PDF", async () => {
-      const user = renderCreator();
-      fireEvent.change(dateInput(), { target: { value: "2027-01-15" } });
+    it("uses the assistant-set date in the PDF", async () => {
+      const user = await renderCreator();
+      await say(user, { effectiveDate: "2027-01-15" });
       await user.click(downloadButton());
       await waitFor(() => expect(pdf).toHaveBeenCalled());
       expect(lastPdfData().effectiveDate).toBe("2027-01-15");
@@ -169,7 +205,7 @@ describe("NdaCreator", () => {
     it("shows progress and prevents double clicks while generating", async () => {
       let finish!: (blob: Blob) => void;
       toBlob.mockReturnValue(new Promise((resolve) => (finish = resolve)));
-      const user = renderCreator();
+      const user = await renderCreator();
       await user.click(downloadButton());
 
       expect(await screen.findByRole("button", { name: "Preparing PDF…" })).toBeDisabled();
@@ -183,7 +219,7 @@ describe("NdaCreator", () => {
     });
 
     it("revokes the object URL after the download starts", async () => {
-      const user = renderCreator();
+      const user = await renderCreator();
       await user.click(downloadButton());
       await waitFor(() => expect(clicked).toHaveLength(1));
       expect(revokeObjectURL).not.toHaveBeenCalled();
@@ -195,7 +231,7 @@ describe("NdaCreator", () => {
     it("reports a failure and lets the user retry", async () => {
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
       toBlob.mockRejectedValueOnce(new Error("render failed"));
-      const user = renderCreator();
+      const user = await renderCreator();
 
       await user.click(downloadButton());
       expect(await screen.findByRole("status")).toHaveTextContent(

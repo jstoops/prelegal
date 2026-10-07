@@ -12,23 +12,13 @@ export const SIGNING_STATEMENT =
   "By signing this Cover Page, each party agrees to enter into this MNDA as of the Effective Date.";
 export const PARTY_HEADINGS = ["PARTY 1", "PARTY 2"] as const;
 
-/** Captions from the template's `<label>`s, also used as form hints. */
+/** Captions from the template's `<label>`s. */
 export const COVER_HINTS = {
   purpose: "How Confidential Information may be used",
   mndaTerm: "The length of this MNDA",
   confidentiality: "How long Confidential Information is protected",
   noticeAddress: "Use either email or postal address",
 } as const;
-
-export const MIN_YEARS = 1;
-export const MAX_YEARS = 99;
-
-/** Parses a whole number of years in [MIN_YEARS, MAX_YEARS]; null if invalid. */
-export function parseYears(value: string): number | null {
-  if (!/^\d+$/.test(value.trim())) return null;
-  const years = Number(value);
-  return years >= MIN_YEARS && years <= MAX_YEARS ? years : null;
-}
 
 export interface Party {
   printName: string;
@@ -39,10 +29,11 @@ export interface Party {
 
 export interface NdaData {
   purpose: string;
-  /** ISO date (YYYY-MM-DD); empty when not provided. */
+  /** ISO date (YYYY-MM-DD); empty when not set (the creator then shows today). */
   effectiveDate: string;
   /** "fixed" = expires after `mndaTermYears`; "open" = continues until terminated. */
   mndaTermType: TermType;
+  /** Whole years, 1-99 (validated by the backend). */
   mndaTermYears: number;
   /** "fixed" = `confidentialityYears` after Effective Date; "open" = in perpetuity. */
   confidentialityType: TermType;

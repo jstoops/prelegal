@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import NdaForm from "@/components/NdaForm";
+import NdaChat from "@/components/NdaChat";
 import NdaPreview from "@/components/NdaPreview";
 import { defaultNdaData, pdfFileName, todayIso, type NdaData } from "@/lib/nda";
 import type { NdaTemplate } from "@/lib/nda-template";
@@ -32,25 +32,19 @@ async function downloadPdf(data: NdaData, template: NdaTemplate) {
 }
 
 export default function NdaCreator({ template }: { template: NdaTemplate }) {
-  const [formData, setFormData] = useState<NdaData>(defaultNdaData);
-  const [dateEdited, setDateEdited] = useState(false);
+  const [data, setData] = useState<NdaData>(defaultNdaData);
   const [status, setStatus] = useState<"idle" | "generating" | "error">("idle");
 
-  // Until the user edits it, the Effective Date is "today" in their time zone.
-  // It's read on the client only (empty on the server) as the page is
-  // prerendered. Once edited, the user's value is kept, even if blank.
+  // Until the assistant sets one, the Effective Date is "today" in the user's
+  // time zone. It's read on the client only (empty on the server) as the page
+  // is prerendered.
   const today = useSyncExternalStore(subscribeNever, todayIso, () => "");
-  const ndaData = dateEdited ? formData : { ...formData, effectiveDate: today };
-
-  const handleChange = (next: NdaData) => {
-    if (next.effectiveDate !== ndaData.effectiveDate) setDateEdited(true);
-    setFormData(next);
-  };
+  const displayData = { ...data, effectiveDate: data.effectiveDate || today };
 
   const handleDownload = async () => {
     setStatus("generating");
     try {
-      await downloadPdf(ndaData, template);
+      await downloadPdf(displayData, template);
       setStatus("idle");
     } catch (error) {
       console.error("Failed to generate NDA PDF", error);
@@ -86,15 +80,18 @@ export default function NdaCreator({ template }: { template: NdaTemplate }) {
       </div>
 
       <main className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
-        <aside className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-2">
-          <p className="mb-6 text-sm text-slate-600">
-            Fill in the key terms and the preview updates as you type. Download
-            the completed agreement as a PDF when you&apos;re done.
+        <aside className="flex flex-col lg:sticky lg:top-24 lg:h-[calc(100vh-10rem)]">
+          <p className="mb-4 text-sm text-slate-600">
+            Chat with the assistant about your NDA and the preview fills in as
+            you go. Download the completed agreement as a PDF when you&apos;re
+            done.
           </p>
-          <NdaForm data={ndaData} onChange={handleChange} />
+          <div className="min-h-0 flex-1">
+            <NdaChat data={data} onDataChange={setData} />
+          </div>
         </aside>
         <section aria-label="NDA preview" className="min-w-0">
-          <NdaPreview data={ndaData} template={template} />
+          <NdaPreview data={displayData} template={template} />
         </section>
       </main>
     </div>

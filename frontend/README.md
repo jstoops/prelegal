@@ -1,6 +1,6 @@
 # Prelegal frontend
 
-Next.js app for drafting legal agreements. It has a sign-in screen, a dashboard of the documents in `catalog.json`, and the **Mutual NDA Creator**: fill in the key terms in a form, see the Common Paper Mutual NDA update live, and download the completed agreement as a PDF.
+Next.js app for drafting legal agreements. It has a sign-in screen, a dashboard of the documents in `catalog.json`, and the **Mutual NDA Creator**: chat with an AI assistant that asks about the agreement and fills it in, see the Common Paper Mutual NDA update live, and download the completed agreement as a PDF.
 
 Sign-in is fake for now (PL-4): any email and password are accepted, and the email is kept in `sessionStorage` to show in the header. Nothing is sent to the backend.
 
@@ -15,6 +15,8 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+`npm run dev` has no backend, so the AI chat shows an error there. To try the chat, build and run the whole product on http://localhost:8000 (`npm run build`, then `uv run prelegal-backend` in `backend/`, or the Docker start scripts), with `OPENROUTER_API_KEY` in the repo's `.env`.
 
 Other scripts: `npm run build` (static export to `out/`), `npm run lint`, `npm test` (unit and component tests) and `npm run test:e2e` (Playwright against the FastAPI backend, which needs [uv](https://docs.astral.sh/uv/) and `npx playwright install chromium` once). See [TESTING.md](TESTING.md) for test coverage and the manual test plan.
 
@@ -35,8 +37,9 @@ Other scripts: `npm run build` (static export to `out/`), `npm run lint`, `npm t
 | `scripts/fix-export-segments.mjs` | Runs after `next build` to work around a Windows-only Next.js export bug that breaks link prefetching (see the comment in the file). |
 | `lib/nda-template.ts` | Reads `templates/Mutual-NDA-coverpage.md` and `templates/Mutual-NDA.md` and parses them into structured, serializable content (server-only). Parsing is strict: if the template structure changes unexpectedly, the build fails instead of silently dropping text. |
 | `lib/nda.ts` | `NdaData` model, defaults, and derived cover-page content shared by the preview and the PDF. |
-| `components/NdaCreator.tsx` | Client container: form state, layout, PDF download. |
-| `components/NdaForm.tsx` | Form inputs for agreement terms and both parties. |
+| `components/NdaCreator.tsx` | Client container: NDA state (the Effective Date shows today until the assistant sets one), layout, PDF download. |
+| `components/NdaChat.tsx` | The AI chat: asks the backend for a greeting on load, sends each message with the conversation and the current NDA, and passes the updated NDA up. Shows errors with a Retry button. The conversation is lost on reload. |
+| `lib/chat.ts` | Client for `POST /api/chat` (same origin). |
 | `components/NdaPreview.tsx` | HTML rendering of the completed NDA. |
 | `components/NdaPdfDocument.tsx` | `@react-pdf/renderer` version of the NDA, lazy-loaded on download. |
 
