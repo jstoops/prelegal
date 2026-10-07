@@ -5,7 +5,7 @@ import { loadNdaTemplate } from "@/lib/nda-template";
 export const metadata: Metadata = {
   title: "Mutual NDA Creator",
   description:
-    "Fill in key terms to draft a Common Paper Mutual Non-Disclosure Agreement and download it as a PDF.",
+    "Chat with an AI assistant to draft a Common Paper Mutual Non-Disclosure Agreement and download it as a PDF.",
 };
 
 export default async function NdaPage() {

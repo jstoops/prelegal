@@ -27,6 +27,9 @@ export default defineConfig({
       PRELEGAL_PORT: String(PORT),
       PRELEGAL_STATIC_DIR: path.resolve(__dirname, "out"),
       PRELEGAL_DB_PATH: path.resolve(__dirname, "..", "backend", "data", "e2e.db"),
+      // Set but empty, so the repo's .env isn't loaded: tests never call the
+      // real LLM, and unmocked chats get the "not configured" error.
+      OPENROUTER_API_KEY: "",
     },
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

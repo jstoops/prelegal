@@ -8,7 +8,7 @@ A platform for drafting common legal agreements
 ## Project layout
 
 - `templates/` + `catalog.json`: Common Paper legal agreement templates (CC BY 4.0).
-- `frontend/`: Next.js app, built as static files. It has a sign-in screen (fake for now), a dashboard of documents and the Mutual NDA creator. See [frontend/README.md](frontend/README.md).
+- `frontend/`: Next.js app, built as static files. It has a sign-in screen (fake for now), a dashboard of documents and the Mutual NDA creator, an AI chat that fills in the NDA. See [frontend/README.md](frontend/README.md).
 - `backend/`: FastAPI app (a uv project). It serves the API under `/api` and the built frontend everywhere else. See [backend/README.md](backend/README.md).
 - `scripts/`: start and stop the app in Docker.
 - `Dockerfile`: builds the frontend and packages it with the backend in one image.
@@ -33,11 +33,17 @@ scripts/stop-windows.ps1
 
 Then open http://localhost:8000. Any email and password will sign you in.
 
-The start script rebuilds the image and replaces any running container. The SQLite database is created from scratch on every start. If there is a `.env` file in the repo root (e.g. with `OPENROUTER_API_KEY`), it is passed to the container.
+The AI chat needs an [OpenRouter](https://openrouter.ai/) API key in a `.env` file in the repo root:
+
+```bash
+OPENROUTER_API_KEY=sk-or-...
+```
+
+The start script rebuilds the image and replaces any running container. The SQLite database is created from scratch on every start. The `.env` file, if present, is passed to the container.
 
 ## Development
 
-Run the frontend with hot reload (http://localhost:3000):
+Run the frontend with hot reload (http://localhost:3000). There is no backend there, so the AI chat shows an error:
 
 ```bash
 cd frontend
@@ -45,7 +51,7 @@ npm install
 npm run dev
 ```
 
-Run the backend serving your latest frontend build (http://localhost:8000). This needs [uv](https://docs.astral.sh/uv/):
+Run the backend serving your latest frontend build (http://localhost:8000), with the AI chat. This needs [uv](https://docs.astral.sh/uv/), and reads `OPENROUTER_API_KEY` from `.env`:
 
 ```bash
 cd frontend && npm run build

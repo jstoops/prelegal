@@ -1,4 +1,6 @@
 import path from "node:path";
+import { vi } from "vitest";
+import type { ChatMessage, ChatResult } from "@/lib/chat";
 import { defaultNdaData, type NdaData } from "@/lib/nda";
 
 /** The repo's real templates directory (tests run from frontend/). */
@@ -33,4 +35,29 @@ export function filledNdaData(overrides: Partial<NdaData> = {}): NdaData {
     ],
     ...overrides,
   };
+}
+
+export interface ChatRequestBody {
+  messages: ChatMessage[];
+  data: NdaData;
+  today: string;
+}
+
+type ChatHandler = (body: ChatRequestBody) => ChatResult | Response | Promise<ChatResult | Response>;
+
+/**
+ * Replaces `fetch` with a fake `/api/chat`. The handler gets each request's
+ * body and returns the reply (or a raw Response, e.g. for errors). The returned
+ * list collects every request body.
+ */
+export function mockChatApi(handler: ChatHandler): ChatRequestBody[] {
+  const requests: ChatRequestBody[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+    if (url !== "/api/chat") throw new Error(`Unexpected fetch: ${String(url)}`);
+    const body = JSON.parse(String(init?.body)) as ChatRequestBody;
+    requests.push(body);
+    const result = await handler(body);
+    return result instanceof Response ? result : Response.json(result);
+  });
+  return requests;
 }

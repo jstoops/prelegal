@@ -4,7 +4,6 @@ import {
   defaultNdaData,
   formatDate,
   orPlaceholder,
-  parseYears,
   partyRows,
   pdfFileName,
   todayIso,
@@ -69,25 +68,6 @@ describe("formatDate", () => {
     "returns an empty string for invalid input %j",
     (iso) => {
       expect(formatDate(iso)).toBe("");
-    },
-  );
-});
-
-describe("parseYears", () => {
-  it.each([
-    ["1", 1],
-    ["5", 5],
-    ["99", 99],
-    [" 7 ", 7],
-    ["007", 7],
-  ])("accepts %j as %d", (input, expected) => {
-    expect(parseYears(input)).toBe(expected);
-  });
-
-  it.each(["", "0", "100", "500", "-1", "2.5", "1e1", "abc", "5 years"])(
-    "rejects %j",
-    (input) => {
-      expect(parseYears(input)).toBeNull();
     },
   );
 });
