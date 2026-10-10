@@ -115,12 +115,13 @@ class TestNormalize:
         )
         data = DocumentData(
             document_id="mutual-nda",
-            fields={"governingLaw": "[null]", "jurisdiction": "Austin, TX"},
+            fields={"governingLaw": "[null]", "jurisdiction": "Austin, TX", "purpose": '""'},
             parties=(party, party),
         )
         result = CATALOG.normalize(data)
         assert result.fields["governingLaw"] == ""
         assert result.fields["jurisdiction"] == "Austin, TX"
+        assert result.fields["purpose"] == ""
         for p in result.parties:
             assert p.model_dump() == {"print_name": "", "title": "", "company": "Bananas Inc", "notice_address": ""}
 
@@ -276,9 +277,41 @@ class TestApplyUpdates:
         assert result.parties[0].company == "Nullable Corp"
         assert result.parties[0].title == "Head of [R&D] ops"
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ('""', ""),
+            ("''", ""),
+            ("“”", ""),
+            (' " " ', ""),
+            ('"Delaware"', "Delaware"),
+            ("“Delaware”", "Delaware"),
+            ('"[null]"', None),  # placeholder text, quoted: keep the current value
+        ],
+    )
+    def test_unwraps_quoted_text_from_the_llm(self, text: str, expected: str | None):
+        data = nda_data(governingLaw="Texas")
+        result = apply_updates(NDA, data, nda_updates(governingLaw=text, party1={"company": text}))
+        assert result.fields["governingLaw"] == ("Texas" if expected is None else expected)
+        assert result.parties[0].company == (expected or "")
+
+    def test_keeps_quotes_inside_text(self):
+        result = apply_updates(
+            NDA,
+            nda_data(),
+            nda_updates(
+                purpose='Testing the "Widget" prototype',
+                party1={"printName": "Siobhan O'Brien", "company": '"Acme" Holdings'},
+            ),
+        )
+        assert result.fields["purpose"] == 'Testing the "Widget" prototype'
+        assert result.parties[0].print_name == "Siobhan O'Brien"
+        assert result.parties[0].company == '"Acme" Holdings'
+
     def test_tells_the_llm_to_use_json_null(self):
         schema = json.dumps(CATALOG.updates_model(NDA).model_json_schema())
-        assert schema.count('never text such as \\"null\\" or \\"[null]\\"') >= 4 + len(NDA.fields)
+        assert schema.count("Use JSON null when unknown or unchanged") >= 4 + len(NDA.fields)
+        assert "empty quotes" in schema
 
     def test_party_updates_schema_uses_camel_case(self):
         assert set(PartyUpdates.model_json_schema()["properties"]) == {
