@@ -36,11 +36,15 @@ class ChatRequest(CamelModel):
     data: DocumentData
     # The user's local date; the server's date is used if missing.
     today: date | None = Field(default=None, ge=date(2000, 1, 1), le=date(2999, 12, 31))
+    # The user's saved copy of this document, once there is one (see main.py).
+    saved_id: str | None = Field(default=None, max_length=64)
 
 
 class ChatResponse(CamelModel):
     reply: str
     data: DocumentData
+    # Set once the document has been saved to the user's documents.
+    saved_id: str | None = None
 
 
 REPLY_DESCRIPTION = "Your message to the user."

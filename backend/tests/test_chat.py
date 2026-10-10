@@ -37,7 +37,8 @@ class TestChatEndpoint:
         response = chat(chat_client, today="2026-10-05")
 
         assert response.status_code == 200
-        assert response.json() == {"reply": "Hi! Who are the two parties?", "data": NDA}
+        # Just opening the creator saves nothing.
+        assert response.json() == {"reply": "Hi! Who are the two parties?", "data": NDA, "savedId": None}
         [messages] = fake_llm.calls
         assert [m["role"] for m in messages] == ["system", "user"]
         assert messages[1]["content"] == GREETING_REQUEST
@@ -148,7 +149,7 @@ class TestChoosingADocument:
         fake_llm.outputs = [{"reply": "What do you need?"}]
         response = chat(chat_client, data=NO_DOCUMENT)
 
-        assert response.json() == {"reply": "What do you need?", "data": NO_DOCUMENT}
+        assert response.json() == {"reply": "What do you need?", "data": NO_DOCUMENT, "savedId": None}
         [prompt] = fake_llm.prompts
         assert "No document has been chosen yet." in prompt
         assert "isn't in the list" in prompt

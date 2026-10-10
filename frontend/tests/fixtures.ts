@@ -70,9 +70,35 @@ export interface ChatRequestBody {
   messages: ChatMessage[];
   data: DocumentData;
   today: string;
+  savedId: string | null;
 }
 
-type ChatHandler = (body: ChatRequestBody) => ChatResult | Response | Promise<ChatResult | Response>;
+/** A chat reply; `savedId` defaults to null (nothing saved). */
+export type ChatReply = Omit<ChatResult, "savedId"> & { savedId?: string | null };
+type ChatHandler = (body: ChatRequestBody) => ChatReply | Response | Promise<ChatReply | Response>;
+
+/** A fake API route: gets the request (and its JSON body, if any) and returns JSON or a Response. */
+export type RouteHandler = (request: { method: string; body: unknown }) => unknown;
+
+/**
+ * Replaces `fetch` with fake API routes, keyed by "METHOD /path" (e.g.
+ * "GET /api/documents"). Requests to any other route fail the test. The
+ * returned list records every request made.
+ */
+export function mockApi(routes: Record<string, RouteHandler>) {
+  const requests: { method: string; url: string; body: unknown }[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+    const method = init?.method ?? "GET";
+    const handler = routes[`${method} ${String(url)}`];
+    if (!handler) throw new Error(`Unexpected fetch: ${method} ${String(url)}`);
+    const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
+    requests.push({ method, url: String(url), body });
+    const result = await handler({ method, body });
+    if (result instanceof Response) return result;
+    return result === undefined ? new Response(null, { status: 204 }) : Response.json(result);
+  });
+  return requests;
+}
 
 /**
  * Replaces `fetch` with a fake `/api/chat`. The handler gets each request's
@@ -81,12 +107,18 @@ type ChatHandler = (body: ChatRequestBody) => ChatResult | Response | Promise<Ch
  */
 export function mockChatApi(handler: ChatHandler): ChatRequestBody[] {
   const requests: ChatRequestBody[] = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-    if (url !== "/api/chat") throw new Error(`Unexpected fetch: ${String(url)}`);
-    const body = JSON.parse(String(init?.body)) as ChatRequestBody;
-    requests.push(body);
-    const result = await handler(body);
-    return result instanceof Response ? result : Response.json(result);
+  mockApi({
+    "POST /api/chat": async ({ body }) => {
+      requests.push(body as ChatRequestBody);
+      const result = await handler(body as ChatRequestBody);
+      return result instanceof Response ? result : { savedId: null, ...result };
+    },
   });
   return requests;
 }
+
+/** `GET /api/auth/me`: signed in as `email`, or signed out (401) if null. */
+export const meRoute =
+  (email: string | null): RouteHandler =>
+  () =>
+    email ? { email } : Response.json({ detail: "Please sign in to continue." }, { status: 401 });

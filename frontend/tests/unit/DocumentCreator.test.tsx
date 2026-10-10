@@ -6,12 +6,20 @@ import DocumentCreator from "@/components/DocumentCreator";
 import type { CreatorDocument } from "@/lib/catalog";
 import {
   defaultDocumentData,
+  DRAFT_DISCLAIMER,
   emptyDocumentData,
   type DocumentData,
   type FieldValue,
   type Party,
 } from "@/lib/document";
-import { creatorDocuments, definition, mockChatApi, NDA, type ChatRequestBody } from "../fixtures";
+import {
+  creatorDocuments,
+  definition,
+  filledNdaData,
+  mockChatApi,
+  NDA,
+  type ChatRequestBody,
+} from "../fixtures";
 
 // The real PDF pipeline is covered by DocumentPdf.test.tsx and the e2e tests;
 // here we only verify how DocumentCreator drives it.
@@ -124,6 +132,12 @@ describe("DocumentCreator", () => {
       );
     });
 
+    it("says the document is a draft subject to legal review", async () => {
+      await renderCreator();
+      expect(screen.getByRole("note")).toHaveTextContent(/Draft only\..*subject to legal review/);
+      expect(preview().getByText(DRAFT_DISCLAIMER)).toBeInTheDocument();
+    });
+
     it("keeps an empty status region mounted for screen readers", async () => {
       await renderCreator();
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
@@ -138,6 +152,7 @@ describe("DocumentCreator", () => {
           messages: [],
           data: defaultDocumentData(definition("cloud-service-agreement")),
           today: "2026-10-05",
+          savedId: null,
         },
       ]);
       expect(pageTitle()).toBe("Cloud Service Agreement");
@@ -318,6 +333,45 @@ describe("DocumentCreator", () => {
       await user.click(downloadButton());
       await waitFor(() => expect(clicked).toHaveLength(1));
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    });
+  });
+
+  describe("saving", () => {
+    const savedLink = () => screen.queryByRole("link", { name: "Saved to My documents" });
+
+    it("shows when the chat has saved the document", async () => {
+      chatRequests = mockChatApi(({ messages, data }) =>
+        messages.length === 0 ? { reply: GREETING, data } : { reply: REPLY, data, savedId: "draft-1" },
+      );
+      const user = await renderCreator();
+      expect(savedLink()).not.toBeInTheDocument();
+
+      await say(user, (data) => data);
+
+      expect(savedLink()).toHaveAttribute("href", expect.stringMatching(/^\/app\/documents\/?$/));
+    });
+
+    it("continues a saved document where it left off", async () => {
+      const messages = [
+        { role: "assistant" as const, content: "Who are the parties?" },
+        { role: "user" as const, content: "Acme and Globex" },
+        { role: "assistant" as const, content: "Noted, what is the purpose?" },
+      ];
+      chatRequests = mockChatApi(({ data }) => ({ reply: REPLY, data, savedId: "draft-1" }));
+      render(
+        <DocumentCreator documents={documents} saved={{ id: "draft-1", data: filledNdaData(), messages }} />,
+      );
+
+      expect(pageTitle()).toBe("Mutual Non-Disclosure Agreement");
+      expect(screen.getByText("Noted, what is the purpose?")).toBeInTheDocument();
+      expect(preview().getByText("Governing Law: Delaware")).toBeInTheDocument();
+      expect(savedLink()).toBeInTheDocument();
+      expect(chatRequests).toHaveLength(0); // no new greeting
+
+      const user = userEvent.setup();
+      await user.type(screen.getByRole("textbox", { name: "Message the assistant" }), "Hiring{Enter}");
+      await screen.findByText(REPLY);
+      expect(chatRequests[0]).toMatchObject({ savedId: "draft-1", data: filledNdaData() });
     });
   });
 });

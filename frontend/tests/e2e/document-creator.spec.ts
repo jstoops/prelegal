@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { extractText, getDocumentProxy } from "unpdf";
+import { expectNoAxeViolations, signUp } from "./helpers";
 
 const NDA_PATH = "/app/create/?doc=mutual-nda";
 const FIXED_NOW = new Date("2026-10-05T15:00:00-04:00"); // Oct 5, 2026 in New York
@@ -29,6 +29,7 @@ const defaultFields = (id: string) =>
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(FIXED_NOW);
+  await signUp(page);
 });
 
 const preview = (page: Page) => page.getByRole("region", { name: "Document preview" });
@@ -48,6 +49,7 @@ interface ChatBody {
   messages: { role: "user" | "assistant"; content: string }[];
   data: ChatData;
   today: string;
+  savedId: string | null;
 }
 
 interface Turn {
@@ -80,6 +82,8 @@ async function mockAssistant(page: Page, script: Script = {}) {
       json: {
         reply: turn.reply,
         data: { ...data, fields: { ...data.fields, ...turn.fields }, parties: turn.parties ?? data.parties },
+        // Saving is the real backend's job (covered by its tests); this stand-in never saves.
+        savedId: body.savedId,
       },
     });
   });
@@ -150,13 +154,6 @@ async function downloadPdf(page: Page): Promise<{ download: Download; text: stri
   const pdf = await getDocumentProxy(bytes);
   const { text: pages } = await extractText(pdf, { mergePages: false });
   return { download, pages, text: pages.join("\n").replace(/\s+/g, " ") };
-}
-
-async function expectNoAxeViolations(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 test.describe("page load", () => {
@@ -388,7 +385,9 @@ test.describe("PDF download", () => {
   test("loads the PDF library only when downloading", async ({ page }) => {
     const pdfChunks: string[] = [];
     page.on("response", async (res) => {
-      if (res.url().endsWith(".js") && (await res.text()).includes("registerHyphenationCallback")) {
+      // Only bodies count: cached (304) responses have none.
+      if (!res.url().endsWith(".js") || res.status() !== 200) return;
+      if ((await res.text().catch(() => "")).includes("registerHyphenationCallback")) {
         pdfChunks.push(res.url());
       }
     });

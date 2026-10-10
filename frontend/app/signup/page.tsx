@@ -3,14 +3,13 @@ import AuthForm from "@/components/AuthForm";
 import AuthGate from "@/components/AuthGate";
 import AuthLayout from "@/components/AuthLayout";
 
-// The root layout's title template only applies to nested routes.
-export const metadata: Metadata = { title: { absolute: "Sign in | Prelegal" } };
+export const metadata: Metadata = { title: "Create account" };
 
-export default function SignInPage() {
+export default function SignUpPage() {
   return (
     <AuthGate require="guest">
       <AuthLayout>
-        <AuthForm mode="signin" />
+        <AuthForm mode="signup" />
       </AuthLayout>
     </AuthGate>
   );

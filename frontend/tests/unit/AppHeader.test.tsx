@@ -1,20 +1,33 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppHeader from "@/components/AppHeader";
-import { signIn } from "@/lib/session";
+import { AuthProvider } from "@/lib/auth";
+import { meRoute, mockApi } from "../fixtures";
 
-const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+const pathname = vi.fn(() => "/app/");
+vi.mock("next/navigation", () => ({ usePathname: () => pathname() }));
 
-beforeEach(() => push.mockReset());
-afterEach(() => sessionStorage.clear());
+beforeEach(() => pathname.mockReturnValue("/app/"));
+
+function renderHeader() {
+  const requests = mockApi({
+    "GET /api/auth/me": meRoute("jane@acme.com"),
+    "POST /api/auth/signout": () => undefined,
+  });
+  render(
+    <AuthProvider>
+      <AppHeader />
+    </AuthProvider>,
+  );
+  return { requests, user: userEvent.setup() };
+}
 
 describe("AppHeader", () => {
   // next/link only keeps trailing slashes when built with trailingSlash: true;
   // the e2e tests check the real URLs.
   it("links the brand to the dashboard", () => {
-    render(<AppHeader />);
+    renderHeader();
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Prelegal" })).toHaveAttribute(
       "href",
@@ -22,25 +35,32 @@ describe("AppHeader", () => {
     );
   });
 
-  it("shows the signed-in email", () => {
-    signIn("jane@acme.com");
-    render(<AppHeader />);
-    expect(screen.getByText("jane@acme.com")).toBeInTheDocument();
+  it("shows the signed-in email", async () => {
+    renderHeader();
+    expect(await screen.findByText("jane@acme.com")).toBeInTheDocument();
   });
 
-  it("shows no email when nobody is signed in", () => {
-    render(<AppHeader />);
-    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  it("has navigation marking the current page", () => {
+    pathname.mockReturnValue("/app/documents/");
+    renderHeader();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My documents" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "New document" })).not.toHaveAttribute("aria-current");
   });
 
-  it("signs out and returns to the sign-in page", async () => {
-    signIn("jane@acme.com");
-    const user = userEvent.setup();
-    render(<AppHeader />);
+  it("treats a path without its trailing slash as the same page", () => {
+    pathname.mockReturnValue("/app");
+    renderHeader();
+    expect(screen.getByRole("link", { name: "New document" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("signs out through the API", async () => {
+    const { requests, user } = renderHeader();
+    await screen.findByText("jane@acme.com");
+
     await user.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(push).toHaveBeenCalledWith("/");
-    expect(sessionStorage.getItem("prelegal.user")).toBeNull();
+
+    expect(requests.map((r) => `${r.method} ${r.url}`)).toContain("POST /api/auth/signout");
     expect(screen.queryByText("jane@acme.com")).not.toBeInTheDocument();
   });
 });

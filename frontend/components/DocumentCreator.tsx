@@ -5,8 +5,10 @@ import { useState, useSyncExternalStore } from "react";
 import DocumentChat from "@/components/DocumentChat";
 import DocumentPreview from "@/components/DocumentPreview";
 import type { CreatorDocument } from "@/lib/catalog";
+import type { ChatMessage } from "@/lib/chat";
 import {
   defaultDocumentData,
+  DRAFT_DISCLAIMER,
   emptyDocumentData,
   pdfFileName,
   todayIso,
@@ -39,18 +41,29 @@ async function downloadPdf(document: CreatorDocument, data: DocumentData) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** A document from the user's saved documents, to continue working on. */
+export interface SavedDocument {
+  id: string;
+  data: DocumentData;
+  messages: ChatMessage[];
+}
+
 interface DocumentCreatorProps {
   documents: CreatorDocument[];
   /** The document picked on the dashboard; without one, the chat works it out. */
   initialDocumentId?: string | null;
+  saved?: SavedDocument;
 }
 
-export default function DocumentCreator({ documents, initialDocumentId }: DocumentCreatorProps) {
+export default function DocumentCreator({ documents, initialDocumentId, saved }: DocumentCreatorProps) {
   const [data, setData] = useState<DocumentData>(() => {
+    if (saved) return saved.data;
     const initial = documents.find((d) => d.definition.id === initialDocumentId);
     return initial ? defaultDocumentData(initial.definition) : emptyDocumentData();
   });
   const [status, setStatus] = useState<"idle" | "generating" | "error">("idle");
+  // Set once the chat has saved the document to the user's documents.
+  const [savedId, setSavedId] = useState(saved?.id ?? null);
   const document = documents.find((d) => d.definition.id === data.documentId);
 
   // Until the assistant sets them, dates are "today" in the user's time zone.
@@ -91,6 +104,15 @@ export default function DocumentCreator({ documents, initialDocumentId }: Docume
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {savedId && (
+              <Link
+                href="/app/documents/"
+                className="hidden items-center gap-1.5 text-sm text-raven hover:text-heading sm:inline-flex"
+              >
+                <span aria-hidden className="size-1.5 rounded-full bg-emerald-600" />
+                Saved to My documents
+              </Link>
+            )}
             {/* Always mounted so screen readers reliably announce changes. */}
             <p
               role="status"
@@ -113,7 +135,16 @@ export default function DocumentCreator({ documents, initialDocumentId }: Docume
         </div>
       </div>
 
-      <main className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
+      <main className="mx-auto grid w-full max-w-7xl flex-1 gap-x-8 gap-y-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
+        <p
+          role="note"
+          className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 lg:col-span-2"
+        >
+          <span aria-hidden className="font-bold">!</span>
+          <span>
+            <strong className="font-semibold">Draft only.</strong> {DRAFT_DISCLAIMER}
+          </span>
+        </p>
         <aside className="flex flex-col lg:sticky lg:top-24 lg:h-[calc(100vh-10rem)]">
           <p className="mb-4 text-sm text-slate-600">
             {document
@@ -121,7 +152,12 @@ export default function DocumentCreator({ documents, initialDocumentId }: Docume
               : "Tell the assistant what you need and it will suggest the right agreement, then help you fill it in."}
           </p>
           <div className="min-h-0 flex-1">
-            <DocumentChat data={data} onDataChange={setData} />
+            <DocumentChat
+              data={data}
+              onDataChange={setData}
+              resume={saved && { savedId: saved.id, messages: saved.messages }}
+              onSaved={setSavedId}
+            />
           </div>
         </aside>
         <section aria-label="Document preview" className="min-w-0">
