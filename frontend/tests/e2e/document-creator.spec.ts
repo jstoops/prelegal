@@ -399,6 +399,25 @@ test.describe("PDF download", () => {
   });
 });
 
+test.describe("desktop layout", () => {
+  for (const viewport of [
+    { width: 1024, height: 768 },
+    { width: 1280, height: 720 },
+    { width: 1920, height: 1080 },
+  ]) {
+    test(`keeps the message box in view at ${viewport.width}x${viewport.height}, before and after scrolling`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await openCreator(page);
+      await expect(messageBox(page)).toBeInViewport({ ratio: 1 });
+      await page.mouse.wheel(0, 5000); // to the end of the Standard Terms
+      await expect(messageBox(page)).toBeInViewport({ ratio: 1 });
+      await expect(page.getByRole("note")).toContainText("Draft only.");
+    });
+  }
+});
+
 test.describe("responsive layout", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

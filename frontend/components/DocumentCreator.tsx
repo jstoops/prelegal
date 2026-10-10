@@ -135,17 +135,10 @@ export default function DocumentCreator({ documents, initialDocumentId, saved }:
         </div>
       </div>
 
-      <main className="mx-auto grid w-full max-w-7xl flex-1 gap-x-8 gap-y-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
-        <p
-          role="note"
-          className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 lg:col-span-2"
-        >
-          <span aria-hidden className="font-bold">!</span>
-          <span>
-            <strong className="font-semibold">Draft only.</strong> {DRAFT_DISCLAIMER}
-          </span>
-        </p>
-        <aside className="flex flex-col lg:sticky lg:top-24 lg:h-[calc(100vh-10rem)]">
+      <main className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(320px,400px)_1fr]">
+        {/* On desktop the chat fills the window below the app header, toolbar
+            and padding (11rem), so the message box is always in view. */}
+        <aside className="flex flex-col lg:sticky lg:top-24 lg:h-[calc(100dvh-11rem)]">
           <p className="mb-4 text-sm text-slate-600">
             {document
               ? "Chat with the assistant about your agreement and the preview fills in as you go. Download it as a PDF when you're done."
@@ -160,23 +153,35 @@ export default function DocumentCreator({ documents, initialDocumentId, saved }:
             />
           </div>
         </aside>
-        <section aria-label="Document preview" className="min-w-0">
-          {document ? (
-            <DocumentPreview document={document} data={displayData} />
-          ) : (
-            <div className="mx-auto max-w-[8.5in] rounded-lg border border-dashed border-slate-300 bg-white px-8 py-16 text-center">
-              <h2 className="text-lg font-semibold text-heading">No document chosen yet</h2>
-              <p className="mt-2 text-sm text-raven">
-                Your agreement will appear here once you and the assistant pick one. You
-                can also{" "}
-                <Link href="/app/" className="font-medium text-brand-strong underline underline-offset-2">
-                  choose one from the documents list
-                </Link>
-                .
-              </p>
-            </div>
-          )}
-        </section>
+        <div className="min-w-0 space-y-6">
+          {/* With the preview rather than above both columns, so it doesn't push the chat down. */}
+          <p
+            role="note"
+            className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          >
+            <span aria-hidden className="font-bold">!</span>
+            <span>
+              <strong className="font-semibold">Draft only.</strong> {DRAFT_DISCLAIMER}
+            </span>
+          </p>
+          <section aria-label="Document preview">
+            {document ? (
+              <DocumentPreview document={document} data={displayData} />
+            ) : (
+              <div className="mx-auto max-w-[8.5in] rounded-lg border border-dashed border-slate-300 bg-white px-8 py-16 text-center">
+                <h2 className="text-lg font-semibold text-heading">No document chosen yet</h2>
+                <p className="mt-2 text-sm text-raven">
+                  Your agreement will appear here once you and the assistant pick one. You
+                  can also{" "}
+                  <Link href="/app/" className="font-medium text-brand-strong underline underline-offset-2">
+                    choose one from the documents list
+                  </Link>
+                  .
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
       </main>
     </div>
   );
