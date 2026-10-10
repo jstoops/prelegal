@@ -41,6 +41,10 @@ def litellm_complete(api_key: str | None) -> Complete:
                 messages=messages,
                 response_format=response_model,
                 reasoning_effort="low",
+                # LiteLLM checks parameters against a model map it downloads at
+                # startup, which (as of Oct 2026) wrongly says OpenRouter's
+                # gpt-oss doesn't take reasoning_effort, and refuses the call.
+                allowed_openai_params=["reasoning_effort"],
                 extra_body=EXTRA_BODY,
                 api_key=api_key,
                 timeout=TIMEOUT_SECONDS,

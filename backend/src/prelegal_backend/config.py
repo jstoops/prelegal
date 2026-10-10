@@ -18,6 +18,12 @@ class Settings:
     documents_file: Path = REPO_ROOT / "documents.json"
     # Without it the AI chat answers 503.
     openrouter_api_key: str | None = None
+    # How long a sign-in lasts (the database, and so every session, is also
+    # reset on restart).
+    session_days: int = 14
+    # Set when served over HTTPS, so the session cookie is never sent over plain
+    # HTTP. Off by default for http://localhost.
+    cookie_secure: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -35,4 +41,6 @@ class Settings:
                 os.environ.get("PRELEGAL_DOCUMENTS_FILE", REPO_ROOT / "documents.json")
             ),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
+            session_days=int(os.environ.get("PRELEGAL_SESSION_DAYS", 14)),
+            cookie_secure=os.environ.get("PRELEGAL_COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
         )

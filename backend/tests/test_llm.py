@@ -32,6 +32,8 @@ def test_calls_gpt_oss_on_cerebras_with_structured_output(monkeypatch):
     assert kwargs["extra_body"] == EXTRA_BODY == {"provider": {"order": ["cerebras"]}}
     assert kwargs["response_format"] is Answer
     assert kwargs["reasoning_effort"] == "low"
+    # Allowed explicitly, whatever LiteLLM's downloaded model map says.
+    assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
     assert kwargs["api_key"] == "key"
     assert kwargs["messages"] == MESSAGES
 

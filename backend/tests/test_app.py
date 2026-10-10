@@ -15,7 +15,8 @@ def test_startup_recreates_database(settings: Settings):
 
     with TestClient(create_app(settings)):
         with closing(sqlite3.connect(settings.db_path)) as conn:
-            assert conn.execute("SELECT name FROM sqlite_master").fetchall() == []
+            tables = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    assert sorted(tables) == [("documents",), ("sessions",), ("users",)]
 
 
 def test_health(client: TestClient):
@@ -44,6 +45,7 @@ def test_unknown_api_path_is_json_404(client: TestClient):
 def test_serves_frontend_pages(client: TestClient):
     for path, text in [
         ("/", "Sign in"),
+        ("/signup/", "Create your account"),
         ("/app/", "Dashboard"),
         ("/app/create/", "Creator"),
     ]:

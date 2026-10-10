@@ -38,6 +38,26 @@ ShortText = Annotated[str, Field(max_length=MAX_FIELD_LENGTH)]
 # A years field embedded in a choice option's text, e.g. "Expires {mndaTermYears}".
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
+# Slips the LLM sometimes makes in text values:
+# - Text instead of JSON null, such as "[null]" (copying the Cover Page's
+#   "[Governing Law]" placeholders). Never a real value: it means "not given".
+#   ("None" is left alone: it can mean e.g. no modifications.)
+# - Text wrapped in quotes, such as '""' for empty or '"Delaware"'.
+NOT_GIVEN = re.compile(r"\s*(null|undefined|\[[^\]]*\])\s*", re.IGNORECASE)
+QUOTES = "\"'\u201c\u201d\u2018\u2019"  # straight and curly
+QUOTED = re.compile(rf"\s*[{QUOTES}](.*)[{QUOTES}]\s*", re.DOTALL)
+
+
+def tidy(value: Any) -> Any:
+    """An LLM value with those slips undone: None if it's placeholder text,
+    and text unwrapped from quotes. Other values are returned as they are."""
+    if not isinstance(value, str):
+        return value
+    quoted = QUOTED.fullmatch(value)
+    if quoted:
+        value = quoted.group(1)
+    return None if NOT_GIVEN.fullmatch(value) else value
+
 
 class CamelModel(BaseModel):
     # validate_assignment lets `_merge_party` reject invalid values field by field.
@@ -217,17 +237,21 @@ class Catalog:
         if data.document_id is None:
             if data.fields:
                 raise InvalidDocument("fields must be empty until a document is chosen")
-            return data
+            return data.model_copy(update={"parties": _tidy_parties(data.parties)})
         doc = self.get(data.document_id)
         if doc is None:
             raise InvalidDocument(f"unknown document {data.document_id!r}")
         unknown = set(data.fields) - {f.key for f in doc.fields}
         if unknown:
             raise InvalidDocument(f"unknown fields for {doc.id}: {', '.join(sorted(unknown))}")
+        # Tidied, as documents saved before these checks may hold the LLM's slips.
+        tidied = {key: tidy(value) for key, value in data.fields.items()}
         fields = doc.defaults() | {
-            key: doc.field(key).validate_value(value) for key, value in data.fields.items()
+            key: doc.field(key).validate_value(value)
+            for key, value in tidied.items()
+            if value is not None
         }
-        return data.model_copy(update={"fields": fields})
+        return data.model_copy(update={"fields": fields, "parties": _tidy_parties(data.parties)})
 
     def switch(self, data: DocumentData, document_id: str) -> DocumentData:
         """`data` moved to another document. The parties and any field values the
@@ -258,12 +282,30 @@ def load_catalog(path: Path) -> Catalog:
 # Values are checked when they're applied instead.
 
 
+def _tidy_parties(parties: tuple[Party, Party]) -> tuple[Party, Party]:
+    """The parties with `tidy` applied (placeholder text becomes blank)."""
+    return tuple(
+        party.model_copy(
+            update={k: (tidy(v) or "").strip() for k, v in party.model_dump().items()}
+        )
+        for party in parties
+    )
+
+
+NULL_GUIDANCE = (
+    " Use JSON null when unknown or unchanged, never text such as \"null\", \"[null]\" or"
+    " empty quotes."
+)
+
+
 class PartyUpdates(CamelModel):
-    print_name: str | None = Field(description="Name of the person signing for this party.")
-    title: str | None = Field(description="Job title of the signer.")
-    company: str | None = Field(description="Legal name of the company.")
+    print_name: str | None = Field(
+        description="Name of the person signing for this party." + NULL_GUIDANCE
+    )
+    title: str | None = Field(description="Job title of the signer." + NULL_GUIDANCE)
+    company: str | None = Field(description="Legal name of the company." + NULL_GUIDANCE)
     notice_address: str | None = Field(
-        description="Email or postal address for legal notices."
+        description="Email or postal address for legal notices." + NULL_GUIDANCE
     )
 
 
@@ -282,7 +324,7 @@ def _updates_model(doc: DocumentDefinition) -> type[BaseModel]:
             "date": " As YYYY-MM-DD; empty string for today.",
             "years": f" Whole years, {MIN_YEARS} to {MAX_YEARS}.",
         }.get(field.kind, "")
-        return f"{field.label}: {field.guidance}{extra}"
+        return f"{field.label}: {field.guidance}{extra}{NULL_GUIDANCE}"
 
     return create_model(
         # Model names become schema titles, so keep them identifier-like.
@@ -296,6 +338,7 @@ def _updates_model(doc: DocumentDefinition) -> type[BaseModel]:
 def _merge_party(party: Party, updates: PartyUpdates | None) -> Party:
     merged = party.model_copy()
     for field, value in (updates.model_dump() if updates else {}).items():
+        value = tidy(value)
         if value is None:
             continue
         try:
@@ -310,7 +353,7 @@ def apply_updates(doc: DocumentDefinition, data: DocumentData, updates: BaseMode
     values = updates.model_dump()
     fields = dict(data.fields)
     for field in doc.fields:
-        value = values.get(field.key)
+        value = tidy(values.get(field.key))
         if value is None:
             continue
         try:

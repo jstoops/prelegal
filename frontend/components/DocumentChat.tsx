@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ChatError, MAX_MESSAGE_LENGTH, sendChat, type ChatMessage } from "@/lib/chat";
+import { ApiError, userMessage } from "@/lib/api";
+import { MAX_MESSAGE_LENGTH, sendChat, type ChatMessage } from "@/lib/chat";
 import type { DocumentData } from "@/lib/document";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/lib/styles";
 
@@ -10,19 +11,25 @@ interface DocumentChatProps {
   data: DocumentData;
   /** Receives the document with the assistant's updates after each reply. */
   onDataChange: (data: DocumentData) => void;
+  /** A saved document to continue: its conversation is shown instead of a greeting. */
+  resume?: { savedId: string; messages: ChatMessage[] };
+  /** Called after each turn that saved the document to the user's documents. */
+  onSaved?: (savedId: string) => void;
 }
 
-const FALLBACK_ERROR = "Something went wrong. Please try again.";
+const DELETED_ERROR =
+  "This document was deleted, so your changes aren't being saved. Retry to save it as a new document.";
 
 /**
  * Freeform chat with the AI assistant, which works out which document the user
- * needs and fills it in. The conversation lives here and is lost on reload; the
- * document itself is owned by the parent.
+ * needs and fills it in. The conversation lives here; the document itself is
+ * owned by the parent. The backend saves both after each turn (once there's a
+ * document), and `resume` picks a saved conversation back up.
  */
-export default function DocumentChat({ data, onDataChange }: DocumentChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // Starts pending: the assistant's greeting is requested on mount.
-  const [pending, setPending] = useState(true);
+export default function DocumentChat({ data, onDataChange, resume, onSaved }: DocumentChatProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => resume?.messages ?? []);
+  // A new chat starts pending: the assistant's greeting is requested on mount.
+  const [pending, setPending] = useState(!resume);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const inputId = useId();
@@ -33,28 +40,46 @@ export default function DocumentChat({ data, onDataChange }: DocumentChatProps) 
   useEffect(() => {
     dataRef.current = data;
   });
+  // The saved copy that turns update; set by the first turn that saves.
+  const savedIdRef = useRef(resume?.savedId ?? null);
+  // Fixed for the chat's lifetime: a resumed chat never greets.
+  const [resuming] = useState(!!resume);
 
   const runTurn = useCallback(
     async (history: ChatMessage[], signal?: AbortSignal) => {
       try {
-        const result = await sendChat(history, dataRef.current, signal);
+        const result = await sendChat(history, dataRef.current, {
+          savedId: savedIdRef.current,
+          signal,
+        });
         setMessages([...history, { role: "assistant", content: result.reply }]);
         onDataChange(result.data);
+        if (result.savedId) {
+          savedIdRef.current = result.savedId;
+          onSaved?.(result.savedId);
+        }
       } catch (err) {
         if (signal?.aborted) return;
-        setError(err instanceof ChatError ? err.message : FALLBACK_ERROR);
+        if (err instanceof ApiError && err.status === 404 && savedIdRef.current) {
+          // Deleted (e.g. in another tab): the next turn saves a new copy.
+          savedIdRef.current = null;
+          setError(DELETED_ERROR);
+        } else {
+          setError(userMessage(err));
+        }
       }
       setPending(false);
     },
-    [onDataChange],
+    [onDataChange, onSaved],
   );
 
   useEffect(() => {
+    if (resuming) return; // the conversation continues where it left off
     // Aborted on unmount, so React's dev-mode double effect greets only once.
     const controller = new AbortController();
     void runTurn([], controller.signal);
     return () => controller.abort();
-  }, [runTurn]);
+  }, [runTurn, resuming]);
 
   // Keep the newest message in view, scrolling only the conversation itself.
   useEffect(() => {

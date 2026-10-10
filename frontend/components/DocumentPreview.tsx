@@ -1,6 +1,7 @@
 import type { CreatorDocument } from "@/lib/catalog";
 import {
   coverPageSections,
+  DRAFT_DISCLAIMER,
   partyHeadings,
   partyRows,
   STANDARD_TERMS_TITLE,
@@ -59,6 +60,9 @@ export default function DocumentPreview({ document, data }: DocumentPreviewProps
   const { definition, terms } = document;
   return (
     <article className="mx-auto max-w-[8.5in] bg-white px-10 py-12 font-serif text-[15px] leading-relaxed text-slate-900 shadow-lg ring-1 ring-slate-200 sm:px-16">
+      <p className="mb-6 border-y border-amber-300 py-2 text-center font-sans text-xs text-amber-900">
+        {DRAFT_DISCLAIMER}
+      </p>
       <h2 className="text-center text-2xl font-bold">{definition.name}</h2>
       <p className="mt-6">
         <InlineText content={document.intro} />

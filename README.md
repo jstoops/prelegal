@@ -9,7 +9,7 @@ A platform for drafting common legal agreements
 
 - `templates/` + `catalog.json`: Common Paper legal agreement templates (CC BY 4.0).
 - `documents.json`: the documents users can draft. Each has its Cover Page fields (labels, defaults, guidance for the AI) and party roles, and points to its Standard Terms in `templates/`. The backend and the frontend both read it.
-- `frontend/`: Next.js app, built as static files. It has a sign-in screen (fake for now), a dashboard of documents and the document creator, where an AI chat works out which agreement you need and fills it in. See [frontend/README.md](frontend/README.md).
+- `frontend/`: Next.js app, built as static files. It has sign-up and sign-in, a dashboard of documents, the document creator (where an AI chat works out which agreement you need and fills it in) and My documents, where everything you draft is saved. See [frontend/README.md](frontend/README.md).
 - `backend/`: FastAPI app (a uv project). It serves the API under `/api` and the built frontend everywhere else. See [backend/README.md](backend/README.md).
 - `scripts/`: start and stop the app in Docker.
 - `Dockerfile`: builds the frontend and packages it with the backend in one image.
@@ -32,7 +32,7 @@ scripts/start-windows.ps1
 scripts/stop-windows.ps1
 ```
 
-Then open http://localhost:8000. Any email and password will sign you in.
+Then open http://localhost:8000 and create an account.
 
 The AI chat needs an [OpenRouter](https://openrouter.ai/) API key in a `.env` file in the repo root:
 
@@ -40,11 +40,11 @@ The AI chat needs an [OpenRouter](https://openrouter.ai/) API key in a `.env` fi
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-The start script rebuilds the image and replaces any running container. The SQLite database is created from scratch on every start. The `.env` file, if present, is passed to the container.
+The start script rebuilds the image and replaces any running container. The SQLite database is created from scratch on every start, so accounts and saved documents last only until the app is restarted. The `.env` file, if present, is passed to the container.
 
 ## Development
 
-Run the frontend with hot reload (http://localhost:3000). There is no backend there, so the AI chat shows an error:
+Run the frontend with hot reload (http://localhost:3000). There is no backend there, so you can't sign in; use it to work on the sign-in pages, or run the backend as below for everything else:
 
 ```bash
 cd frontend

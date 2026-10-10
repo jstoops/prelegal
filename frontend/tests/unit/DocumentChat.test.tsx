@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DocumentChat from "@/components/DocumentChat";
-import type { ChatResult } from "@/lib/chat";
+import type { ChatMessage } from "@/lib/chat";
 import { defaultDocumentData, emptyDocumentData } from "@/lib/document";
-import { filledNdaData, mockChatApi, NDA, type ChatRequestBody } from "../fixtures";
+import { filledNdaData, mockChatApi, NDA, type ChatReply, type ChatRequestBody } from "../fixtures";
 
 const defaultNdaData = () => defaultDocumentData(NDA);
 
@@ -14,7 +14,7 @@ const GREETING = "Hi! Who are the two parties?";
 /** Greets on an empty history, then answers with `reply` and `data`. */
 const greetThen =
   (reply = "Thanks, noted.", data = filledNdaData()) =>
-  ({ messages }: ChatRequestBody): ChatResult =>
+  ({ messages }: ChatRequestBody): ChatReply =>
     messages.length === 0 ? { reply: GREETING, data: defaultNdaData() } : { reply, data };
 
 const renderChat = (data = defaultNdaData()) => {
@@ -111,11 +111,11 @@ describe("DocumentChat", () => {
   });
 
   it("lets the user type but not send while waiting for a reply", async () => {
-    let answer!: (result: ChatResult) => void;
+    let answer!: (result: ChatReply) => void;
     mockChatApi(({ messages }) =>
       messages.length === 0
         ? { reply: GREETING, data: defaultNdaData() }
-        : new Promise<ChatResult>((resolve) => (answer = resolve)),
+        : new Promise<ChatReply>((resolve) => (answer = resolve)),
     );
     const { user } = renderChat();
     await log().findByText(GREETING);
@@ -188,5 +188,115 @@ describe("DocumentChat", () => {
     await userEvent.setup().type(messageBox(), "Next{Enter}");
     await waitFor(() => expect(requests).toHaveLength(2));
     expect(requests[1].data).toEqual(updated);
+  });
+
+  describe("saving", () => {
+    const SAVED_HISTORY: ChatMessage[] = [
+      { role: "assistant", content: "Hi! Who are the parties?" },
+      { role: "user", content: "Acme and Globex" },
+      { role: "assistant", content: "Got it. What's the purpose?" },
+    ];
+
+    it("sends the saved copy's id once a turn has saved the document", async () => {
+      let turn = 0;
+      const requests = mockChatApi((body) => {
+        turn += 1;
+        if (body.messages.length === 0) return { reply: GREETING, data: defaultNdaData() };
+        return { reply: `Reply ${turn}`, data: defaultNdaData(), savedId: "draft-1" };
+      });
+      const onSaved = vi.fn();
+      const user = userEvent.setup();
+      render(<DocumentChat data={defaultNdaData()} onDataChange={() => {}} onSaved={onSaved} />);
+      await log().findByText(GREETING);
+
+      await user.type(messageBox(), "First{Enter}");
+      await log().findByText("Reply 2");
+      await user.type(messageBox(), "Second{Enter}");
+      await log().findByText("Reply 3");
+
+      expect(requests.map((r) => r.savedId)).toEqual([null, null, "draft-1"]);
+      expect(onSaved).toHaveBeenCalledWith("draft-1");
+      expect(onSaved).toHaveBeenCalledTimes(2);
+    });
+
+    it("doesn't report a save when nothing was saved", async () => {
+      mockChatApi(greetThen());
+      const onSaved = vi.fn();
+      render(<DocumentChat data={defaultNdaData()} onDataChange={() => {}} onSaved={onSaved} />);
+      await log().findByText(GREETING);
+      expect(onSaved).not.toHaveBeenCalled();
+    });
+
+    it("resumes a saved conversation without a new greeting", async () => {
+      const requests = mockChatApi(() => ({ reply: "Noted.", data: filledNdaData(), savedId: "draft-1" }));
+      const user = userEvent.setup();
+      render(
+        <DocumentChat
+          data={defaultNdaData()}
+          onDataChange={() => {}}
+          resume={{ savedId: "draft-1", messages: SAVED_HISTORY }}
+        />,
+      );
+
+      expect(log().getByText("Got it. What's the purpose?")).toBeInTheDocument();
+      expect(log().queryByText("Assistant is typing…")).not.toBeInTheDocument();
+      expect(sendButton()).toBeDisabled(); // only until something is typed
+      expect(requests).toHaveLength(0);
+
+      await user.type(messageBox(), "Hiring{Enter}");
+      await log().findByText("Noted.");
+      expect(requests).toEqual([
+        expect.objectContaining({
+          messages: [...SAVED_HISTORY, { role: "user", content: "Hiring" }],
+          savedId: "draft-1",
+        }),
+      ]);
+    });
+
+    it("saves a new copy if the saved one was deleted elsewhere", async () => {
+      let deleted = true;
+      const requests = mockChatApi((body) =>
+        deleted && body.savedId === "draft-1"
+          ? Response.json({ detail: "Document not found." }, { status: 404 })
+          : { reply: "Noted.", data: filledNdaData(), savedId: "draft-2" },
+      );
+      const onSaved = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <DocumentChat
+          data={defaultNdaData()}
+          onDataChange={() => {}}
+          onSaved={onSaved}
+          resume={{ savedId: "draft-1", messages: SAVED_HISTORY }}
+        />,
+      );
+
+      await user.type(messageBox(), "Hiring{Enter}");
+      expect(await log().findByRole("alert")).toHaveTextContent(
+        "This document was deleted, so your changes aren't being saved. Retry to save it as a new document.",
+      );
+
+      deleted = false;
+      await user.click(screen.getByRole("button", { name: "Retry" }));
+      await log().findByText("Noted.");
+      expect(requests.map((r) => r.savedId)).toEqual(["draft-1", null]);
+      expect(onSaved).toHaveBeenCalledWith("draft-2");
+    });
+
+    it("resumes only once in strict mode", async () => {
+      const requests = mockChatApi(greetThen());
+      render(
+        <StrictMode>
+          <DocumentChat
+            data={defaultNdaData()}
+            onDataChange={() => {}}
+            resume={{ savedId: "draft-1", messages: SAVED_HISTORY }}
+          />
+        </StrictMode>,
+      );
+      expect(log().getAllByText("Acme and Globex")).toHaveLength(1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(requests).toHaveLength(0);
+    });
   });
 });

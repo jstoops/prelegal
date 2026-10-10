@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
-import LoginForm from "@/components/LoginForm";
+import AuthForm from "@/components/AuthForm";
+import AuthGate from "@/components/AuthGate";
+import AuthLayout from "@/components/AuthLayout";
 
 // The root layout's title template only applies to nested routes.
 export const metadata: Metadata = { title: { absolute: "Sign in | Prelegal" } };
 
-export default function LoginPage() {
+export default function SignInPage() {
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-12">
-      <LoginForm />
-    </main>
+    <AuthGate require="guest">
+      <AuthLayout>
+        <AuthForm mode="signin" />
+      </AuthLayout>
+    </AuthGate>
   );
 }

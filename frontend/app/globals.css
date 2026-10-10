@@ -14,6 +14,8 @@
   --color-brand: #bd5d38;
   --color-brand-strong: #9f4e2f;
   --color-brand-stronger: #85412a;
+  /* Orange for text on dark backgrounds (5.6:1 on heading gray). */
+  --color-brand-light: #e8a283;
   --color-raven: #6c757d;
   --color-raven-hover: #5a6268;
   --color-heading: #343a40;

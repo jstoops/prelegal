@@ -6,6 +6,7 @@ import { Document, Font, Link, Page, StyleSheet, Text, View } from "@react-pdf/r
 import type { CreatorDocument } from "@/lib/catalog";
 import {
   coverPageSections,
+  DRAFT_DISCLAIMER,
   partyHeadings,
   partyRows,
   STANDARD_TERMS_TITLE,
@@ -20,6 +21,18 @@ const BORDER = "#cbd5e1";
 const MUTED = "#64748b";
 
 const styles = StyleSheet.create({
+  // In the page's bottom padding, so it never moves the content.
+  disclaimer: {
+    position: "absolute",
+    bottom: 20,
+    left: 60,
+    right: 60,
+    fontFamily: "Helvetica",
+    fontSize: 7,
+    lineHeight: 1.3,
+    color: MUTED,
+    textAlign: "center",
+  },
   page: {
     paddingVertical: 48,
     paddingHorizontal: 60,
@@ -102,6 +115,15 @@ function PdfClauses({ clauses, depth = 0 }: { clauses: Clause[]; depth?: number 
   ));
 }
 
+/** On every page, including those the content flows onto. Drawn last, after the page's text. */
+function Disclaimer() {
+  return (
+    <Text style={styles.disclaimer} fixed>
+      {DRAFT_DISCLAIMER}
+    </Text>
+  );
+}
+
 interface DocumentPdfProps {
   document: CreatorDocument;
   /** The document's data, with blank dates already shown as today. */
@@ -174,6 +196,7 @@ export default function DocumentPdf({ document, data }: DocumentPdfProps) {
             <PdfInline content={document.attribution} />
           </Text>
         </View>
+        <Disclaimer />
       </Page>
 
       <Page size="LETTER" style={styles.page}>
@@ -184,6 +207,7 @@ export default function DocumentPdf({ document, data }: DocumentPdfProps) {
             <PdfInline content={terms.attribution} />
           </Text>
         )}
+        <Disclaimer />
       </Page>
     </Document>
   );

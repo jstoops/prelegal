@@ -14,7 +14,9 @@ def static_dir(tmp_path: Path) -> Path:
     """A minimal stand-in for the Next.js static export."""
     out = tmp_path / "out"
     (out / "app" / "create").mkdir(parents=True)
+    (out / "signup").mkdir()
     (out / "index.html").write_text("<h1>Sign in</h1>")
+    (out / "signup" / "index.html").write_text("<h1>Create your account</h1>")
     (out / "app" / "index.html").write_text("<h1>Dashboard</h1>")
     (out / "app" / "create" / "index.html").write_text("<h1>Creator</h1>")
     (out / "404.html").write_text("<h1>Page not found</h1>")
@@ -28,9 +30,20 @@ def settings(tmp_path: Path, static_dir: Path) -> Settings:
 
 @pytest.fixture
 def client(settings: Settings):
-    # Entering the context runs the lifespan, which creates the database.
+    """A signed-out client. Entering the context runs the lifespan, which
+    creates the database."""
     with TestClient(create_app(settings)) as client:
         yield client
+
+
+PASSWORD = "correct horse battery"
+
+
+def sign_up(client: TestClient, email: str = "alice@example.com") -> TestClient:
+    """Signs `client` up (and so in): it keeps the session cookie."""
+    response = client.post("/api/auth/signup", json={"email": email, "password": PASSWORD})
+    assert response.status_code == 201, response.text
+    return client
 
 
 def _model_in(annotation) -> type[BaseModel] | None:
@@ -85,6 +98,19 @@ def fake_llm() -> FakeLlm:
 
 
 @pytest.fixture
-def chat_client(settings: Settings, fake_llm: FakeLlm):
-    with TestClient(create_app(settings, complete=fake_llm)) as client:
-        yield client
+def app(settings: Settings, fake_llm: FakeLlm):
+    return create_app(settings, complete=fake_llm)
+
+
+@pytest.fixture
+def chat_client(app):
+    """Signed in as alice@example.com, with the fake LLM."""
+    with TestClient(app) as client:
+        yield sign_up(client)
+
+
+@pytest.fixture
+def other_client(app, chat_client: TestClient):
+    """Signed in as bob@example.com, on the same app. Not entered as a context,
+    as that would rerun the lifespan and reset the database."""
+    return sign_up(TestClient(app), "bob@example.com")

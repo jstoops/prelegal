@@ -4,7 +4,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { beforeAll, describe, expect, it } from "vitest";
 import DocumentPdf from "@/components/DocumentPdf";
 import type { CreatorDocument } from "@/lib/catalog";
-import { defaultDocumentData, withDefaultDates, type DocumentData } from "@/lib/document";
+import { defaultDocumentData, DRAFT_DISCLAIMER, withDefaultDates, type DocumentData } from "@/lib/document";
 import type { Clause, Inline } from "@/lib/template";
 import { creatorDocuments, filledNdaData } from "../fixtures";
 
@@ -54,6 +54,14 @@ describe("DocumentPdf", () => {
       expect(cover).toContain(text);
     }
     expect(cover).not.toContain("Standard Terms\n1.");
+  });
+
+  it("marks every page as a draft subject to legal review", async () => {
+    const long = await renderPdf(filledNdaData({ purpose: "word ".repeat(1500) }));
+    expect(long.pages.length).toBeGreaterThan(2);
+    for (const page of long.pages) {
+      expect(page.replace(/\s+/g, " ")).toContain(DRAFT_DISCLAIMER);
+    }
   });
 
   it("starts the Standard Terms on a new page", () => {
