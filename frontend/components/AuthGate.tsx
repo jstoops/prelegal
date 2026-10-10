@@ -34,7 +34,7 @@ export default function AuthGate({ require, children }: AuthGateProps) {
   if (status === allowed) return children;
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-24">
-      <p role="status" className="flex items-center gap-3 text-sm text-raven">
+      <p role="status" className="flex items-center gap-3 text-sm text-slate-600">
         <span
           aria-hidden
           className="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand"

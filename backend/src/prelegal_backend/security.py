@@ -16,16 +16,16 @@ def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
     )
 
 
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
+
+
 def hash_password(password: str) -> str:
     """A salted hash, stored with its parameters ("scrypt$n$r$p$salt$hash") so
     they can be raised later without breaking existing accounts."""
     salt = secrets.token_bytes(16)
     key = _scrypt(password, salt, _N, _R, _P)
     return f"scrypt${_N}${_R}${_P}${_b64(salt)}${_b64(key)}"
-
-
-def _b64(data: bytes) -> str:
-    return base64.b64encode(data).decode()
 
 
 def verify_password(password: str, encoded: str) -> bool:

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useId, useState, type FormEvent } from "react";
-import { ApiError, GENERIC_ERROR } from "@/lib/api";
+import { userMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { alertClass, inputClass, linkClass, primaryButtonClass } from "@/lib/styles";
 
@@ -53,7 +53,7 @@ export default function AuthForm({ mode }: { mode: keyof typeof MODES }) {
     try {
       await (signingUp ? signUp : signIn)(email, password);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
+      setError(userMessage(err));
       setPending(false);
     }
   };

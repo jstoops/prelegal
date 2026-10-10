@@ -61,7 +61,7 @@ export default function DocumentCreator({ documents, initialDocumentId, saved }:
     const initial = documents.find((d) => d.definition.id === initialDocumentId);
     return initial ? defaultDocumentData(initial.definition) : emptyDocumentData();
   });
-  const [status, setStatus] = useState<"idle" | "generating" | "error">("idle");
+  const [status, setStatus] = useState<keyof typeof STATUS_MESSAGES>("idle");
   // Set once the chat has saved the document to the user's documents.
   const [savedId, setSavedId] = useState(saved?.id ?? null);
   const document = documents.find((d) => d.definition.id === data.documentId);
@@ -128,7 +128,7 @@ export default function DocumentCreator({ documents, initialDocumentId, saved }:
                 aria-busy={status === "generating"}
                 className={`${primaryButtonClass} disabled:cursor-wait disabled:opacity-70`}
               >
-                {status === "generating" ? "Preparing PDF…" : "Download PDF"}
+                {status === "generating" ? STATUS_MESSAGES.generating : "Download PDF"}
               </button>
             )}
           </div>

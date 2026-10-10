@@ -10,7 +10,7 @@ import json
 from datetime import date, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, create_model, field_validator
 
 from prelegal_backend.documents import (
     Catalog,
@@ -21,7 +21,10 @@ from prelegal_backend.documents import (
 )
 from prelegal_backend.llm import Complete, LlmError
 
-MAX_MESSAGES = 50
+# A conversation is saved and resumed whole, so it may grow long; only the most
+# recent messages go to the LLM (the document itself carries what's agreed).
+MAX_MESSAGES = 400
+LLM_HISTORY = 40
 MAX_MESSAGE_LENGTH = 4000
 
 
@@ -32,12 +35,22 @@ class ChatMessage(CamelModel):
 
 class ChatRequest(CamelModel):
     # Empty for the opening greeting.
-    messages: list[ChatMessage] = Field(max_length=MAX_MESSAGES)
+    messages: list[ChatMessage]
     data: DocumentData
     # The user's local date; the server's date is used if missing.
     today: date | None = Field(default=None, ge=date(2000, 1, 1), le=date(2999, 12, 31))
     # The user's saved copy of this document, once there is one (see main.py).
     saved_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("messages")
+    @classmethod
+    def _not_too_long(cls, messages: list[ChatMessage]) -> list[ChatMessage]:
+        # A plain message (as a "Value error"), so the user sees why.
+        if len(messages) > MAX_MESSAGES:
+            raise ValueError(
+                "This conversation is too long to continue. Start a new document to keep going."
+            )
+        return messages
 
 
 class ChatResponse(CamelModel):
@@ -218,7 +231,7 @@ def system_prompt(catalog: Catalog, data: DocumentData, today: date) -> str:
 def build_messages(
     catalog: Catalog, request: ChatRequest, data: DocumentData, today: date
 ) -> list[dict[str, str]]:
-    history = [{"role": m.role, "content": m.content} for m in request.messages]
+    history = [{"role": m.role, "content": m.content} for m in request.messages[-LLM_HISTORY:]]
     if not history:
         history = [{"role": "user", "content": GREETING_REQUEST}]
     return [{"role": "system", "content": system_prompt(catalog, data, today)}, *history]

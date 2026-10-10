@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import SavedDocumentList from "@/components/SavedDocumentList";
 import { loadDocuments } from "@/lib/catalog";
+import { documentNames } from "@/lib/document";
 import { primaryButtonClass } from "@/lib/styles";
 
 export const metadata: Metadata = { title: "My documents" };
 
 export default async function MyDocumentsPage() {
-  const documents = await loadDocuments();
-  const documentNames = Object.fromEntries(documents.map((d) => [d.id, d.name]));
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-10 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -23,7 +22,7 @@ export default async function MyDocumentsPage() {
         </Link>
       </div>
       <div className="mt-8">
-        <SavedDocumentList documentNames={documentNames} />
+        <SavedDocumentList documentNames={documentNames(await loadDocuments())} />
       </div>
     </main>
   );

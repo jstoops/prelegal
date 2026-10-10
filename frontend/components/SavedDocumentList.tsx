@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, GENERIC_ERROR } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { userMessage } from "@/lib/api";
 import { deleteDraft, draftHref, formatUpdated, listDrafts, type DraftSummary } from "@/lib/drafts";
 import {
   alertClass,
@@ -30,19 +30,28 @@ type Load =
   | { status: "error"; message: string }
   | { status: "loaded"; drafts: DraftSummary[] };
 
-const message = (error: unknown) => (error instanceof ApiError ? error.message : GENERIC_ERROR);
-
 export default function SavedDocumentList({ documentNames, variant = "all" }: SavedDocumentListProps) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const recent = variant === "recent";
+  // After a delete the focused button is gone, so focus moves to the list (or
+  // the empty state) instead of falling back to the top of the page.
+  const refocus = useRef(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const emptyRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    (listRef.current ?? emptyRef.current)?.focus();
+  }, [load]);
 
   useEffect(() => {
     const controller = new AbortController();
     listDrafts(controller.signal).then(
       (drafts) => setLoad({ status: "loaded", drafts }),
       (error) => {
-        if (!controller.signal.aborted) setLoad({ status: "error", message: message(error) });
+        if (!controller.signal.aborted) setLoad({ status: "error", message: userMessage(error) });
       },
     );
     return () => controller.abort();
@@ -54,6 +63,7 @@ export default function SavedDocumentList({ documentNames, variant = "all" }: Sa
   };
 
   const removed = useCallback((id: string) => {
+    refocus.current = true;
     setLoad((current) =>
       current.status === "loaded"
         ? { ...current, drafts: current.drafts.filter((d) => d.id !== id) }
@@ -91,7 +101,9 @@ export default function SavedDocumentList({ documentNames, variant = "all" }: Sa
     if (recent) return null;
     return (
       <div className={`${cardClass} border-dashed px-6 py-14 text-center`}>
-        <h2 className="text-base font-semibold text-heading">No documents yet</h2>
+        <h2 ref={emptyRef} tabIndex={-1} className="text-base font-semibold text-heading focus:outline-none">
+          No documents yet
+        </h2>
         <p className="mx-auto mt-2 max-w-sm text-sm text-raven">
           Documents you draft with the assistant are saved here automatically, so you can come back to them any time.
         </p>
@@ -103,7 +115,12 @@ export default function SavedDocumentList({ documentNames, variant = "all" }: Sa
   }
 
   const list = (
-    <ul className={`${cardClass} divide-y divide-slate-200`}>
+    <ul
+      ref={listRef}
+      tabIndex={-1}
+      aria-label={recent ? "Recent documents" : "Your documents"}
+      className={`${cardClass} divide-y divide-slate-200 focus:outline-none`}
+    >
       {drafts.map((draft) => (
         <DraftRow
           key={draft.id}
@@ -141,6 +158,21 @@ function DraftRow({ draft, typeName, onDeleted }: DraftRowProps) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Focus follows the buttons as they swap: to Cancel when asked to confirm,
+  // and back to Delete when cancelled or when deleting fails.
+  const returnFocus = useRef(false);
+  const focusCancel = useCallback((el: HTMLButtonElement | null) => el?.focus(), []);
+  const focusDeleteOnReturn = useCallback((el: HTMLButtonElement | null) => {
+    if (el && returnFocus.current) {
+      returnFocus.current = false;
+      el.focus();
+    }
+  }, []);
+
+  const stopConfirming = () => {
+    returnFocus.current = true;
+    setConfirming(false);
+  };
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -149,9 +181,9 @@ function DraftRow({ draft, typeName, onDeleted }: DraftRowProps) {
       await deleteDraft(draft.id);
       onDeleted?.(draft.id);
     } catch (err) {
-      setError(message(err));
+      setError(userMessage(err));
       setDeleting(false);
-      setConfirming(false);
+      stopConfirming();
     }
   };
 
@@ -190,8 +222,9 @@ function DraftRow({ draft, typeName, onDeleted }: DraftRowProps) {
               {deleting ? "Deleting…" : "Delete"}
             </button>
             <button
+              ref={focusCancel}
               type="button"
-              onClick={() => setConfirming(false)}
+              onClick={stopConfirming}
               disabled={deleting}
               className={`${outlineButtonClass} py-1.5`}
             >
@@ -209,6 +242,7 @@ function DraftRow({ draft, typeName, onDeleted }: DraftRowProps) {
             </Link>
             {onDeleted && (
               <button
+                ref={focusDeleteOnReturn}
                 type="button"
                 onClick={() => setConfirming(true)}
                 aria-label={`Delete ${draft.title}`}

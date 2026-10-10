@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ApiError } from "@/lib/api";
+import { ApiError, userMessage } from "@/lib/api";
 import { MAX_MESSAGE_LENGTH, sendChat, type ChatMessage } from "@/lib/chat";
 import type { DocumentData } from "@/lib/document";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/lib/styles";
@@ -17,7 +17,8 @@ interface DocumentChatProps {
   onSaved?: (savedId: string) => void;
 }
 
-const FALLBACK_ERROR = "Something went wrong. Please try again.";
+const DELETED_ERROR =
+  "This document was deleted, so your changes aren't being saved. Retry to save it as a new document.";
 
 /**
  * Freeform chat with the AI assistant, which works out which document the user
@@ -59,7 +60,13 @@ export default function DocumentChat({ data, onDataChange, resume, onSaved }: Do
         }
       } catch (err) {
         if (signal?.aborted) return;
-        setError(err instanceof ApiError ? err.message : FALLBACK_ERROR);
+        if (err instanceof ApiError && err.status === 404 && savedIdRef.current) {
+          // Deleted (e.g. in another tab): the next turn saves a new copy.
+          savedIdRef.current = null;
+          setError(DELETED_ERROR);
+        } else {
+          setError(userMessage(err));
+        }
       }
       setPending(false);
     },

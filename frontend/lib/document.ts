@@ -76,6 +76,10 @@ export const DRAFT_DISCLAIMER =
   "lawyer review them before you sign or rely on them. Prelegal does not provide legal advice.";
 const NOTICE_ADDRESS_HINT = "Use either email or postal address";
 
+/** Document names by id, e.g. "mutual-nda" → "Mutual Non-Disclosure Agreement". */
+export const documentNames = (documents: Pick<DocumentDefinition, "id" | "name">[]) =>
+  Object.fromEntries(documents.map((d) => [d.id, d.name]));
+
 /** The creator's URL, with a document preselected or, without one, chosen in the chat. */
 export const creatorHref = (documentId?: string) =>
   documentId ? `/app/create/?doc=${encodeURIComponent(documentId)}` : "/app/create/";

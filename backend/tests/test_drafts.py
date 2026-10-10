@@ -97,6 +97,19 @@ class TestSavingThroughTheChat:
         assert chat(chat_client, HELLO).status_code == 502
         assert documents(chat_client) == []
 
+    def test_a_long_saved_conversation_can_be_continued(self, chat_client: TestClient):
+        # Each turn saves the request plus the reply, so a saved conversation is
+        # always one longer than the request that saved it.
+        history = HELLO * 30
+        saved_id = turn(chat_client, history)["savedId"]
+        saved = chat_client.get(f"/api/documents/{saved_id}").json()["messages"]
+        assert len(saved) == 61
+
+        resumed = turn(chat_client, [*saved, {"role": "user", "content": "More"}], saved_id=saved_id)
+
+        assert resumed["savedId"] == saved_id
+        assert len(chat_client.get(f"/api/documents/{saved_id}").json()["messages"]) == 63
+
     def test_unknown_saved_id_is_404_before_calling_the_llm(
         self, chat_client: TestClient, fake_llm: FakeLlm
     ):

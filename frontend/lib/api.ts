@@ -5,7 +5,7 @@
  */
 
 const NETWORK_ERROR = "Couldn't reach the server. Check your connection and try again.";
-export const GENERIC_ERROR = "Something went wrong. Please try again.";
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 /** Prefix pydantic adds to messages from the backend's own validators. */
 const VALUE_ERROR = "Value error, ";
 
@@ -19,6 +19,10 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
+/** What to tell the user about a failure: an `ApiError`'s message, or a generic one. */
+export const userMessage = (error: unknown) =>
+  error instanceof ApiError ? error.message : GENERIC_ERROR;
 
 let onUnauthorized: () => void = () => {};
 

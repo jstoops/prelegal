@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import DocumentCreator from "@/components/DocumentCreator";
-import { ApiError, GENERIC_ERROR } from "@/lib/api";
+import { ApiError, userMessage } from "@/lib/api";
 import type { CreatorDocument } from "@/lib/catalog";
 import { getDraft, type Draft } from "@/lib/drafts";
 import { cardClass, primaryButtonClass } from "@/lib/styles";
@@ -34,12 +34,8 @@ function SavedCreator({ id, documents }: { id: string; documents: CreatorDocumen
       (draft) => setLoad({ status: "loaded", draft }),
       (error) => {
         if (controller.signal.aborted) return;
-        const message =
-          error instanceof ApiError && error.status === 404
-            ? "This document doesn't exist, or it was deleted."
-            : error instanceof ApiError
-              ? error.message
-              : GENERIC_ERROR;
+        const missing = error instanceof ApiError && error.status === 404;
+        const message = missing ? "This document doesn't exist, or it was deleted." : userMessage(error);
         setLoad({ status: "error", message });
       },
     );

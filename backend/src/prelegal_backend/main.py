@@ -68,15 +68,15 @@ def create_app(settings: Settings | None = None, complete: Complete | None = Non
         return user
 
     CurrentUser = Annotated[User, Depends(current_user)]
+    # Shared by setting and deleting, which must match for the delete to work.
+    cookie_flags = {"httponly": True, "samesite": "lax", "secure": settings.cookie_secure}
 
     def start_session(response: Response, user: User) -> AccountResponse:
         response.set_cookie(
             SESSION_COOKIE,
             accounts.start_session(user),
             max_age=int(session_ttl.total_seconds()),
-            httponly=True,
-            samesite="lax",
-            secure=settings.cookie_secure,
+            **cookie_flags,
         )
         return AccountResponse(email=user.email)
 
@@ -102,7 +102,7 @@ def create_app(settings: Settings | None = None, complete: Complete | None = Non
     ) -> None:
         if token:
             accounts.end_session(token)
-        response.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=settings.cookie_secure)
+        response.delete_cookie(SESSION_COOKIE, **cookie_flags)
 
     @app.get("/api/auth/me")
     def me(user: CurrentUser) -> AccountResponse:

@@ -81,12 +81,27 @@ describe("SavedDocumentList", () => {
 
       await user.click(screen.getByRole("button", { name: "Delete Pilot Agreement" }));
       expect(screen.getByText("Delete this document?")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
       expect(requests.filter((r) => r.method === "DELETE")).toHaveLength(0);
       await user.click(screen.getByRole("button", { name: "Delete" }));
 
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect(screen.queryByText("Pilot Agreement")).not.toBeInTheDocument();
       expect(requests.at(-1)).toMatchObject({ method: "DELETE", url: "/api/documents/b" });
+      // The focused button is gone, so focus moves to the list rather than the page.
+      expect(screen.getByRole("list", { name: "Your documents" })).toHaveFocus();
+    });
+
+    it("moves focus to the empty state after deleting the last document", async () => {
+      const { user } = renderList({
+        "GET /api/documents": () => ({ documents: DRAFTS.slice(1, 2) }),
+        "DELETE /api/documents/b": () => undefined,
+      });
+      await screen.findAllByRole("listitem");
+      await user.click(screen.getByRole("button", { name: "Delete Pilot Agreement" }));
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      expect(await screen.findByRole("heading", { name: "No documents yet" })).toHaveFocus();
     });
 
     it("can be cancelled", async () => {
@@ -95,7 +110,7 @@ describe("SavedDocumentList", () => {
       await user.click(screen.getByRole("button", { name: "Delete Pilot Agreement" }));
       await user.click(screen.getByRole("button", { name: "Cancel" }));
       expect(rows()).toHaveLength(2);
-      expect(screen.getByRole("button", { name: "Delete Pilot Agreement" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete Pilot Agreement" })).toHaveFocus();
     });
 
     it("keeps the document and explains when deleting fails", async () => {
@@ -109,6 +124,7 @@ describe("SavedDocumentList", () => {
 
       expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't delete this document. Please try again.");
       expect(rows()).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Delete Pilot Agreement" })).toHaveFocus();
     });
   });
 

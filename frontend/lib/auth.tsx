@@ -27,9 +27,7 @@ const SIGNED_OUT: AuthState = { status: "signedOut", email: null };
 
 const AuthContext = createContext<Auth | null>(null);
 
-function emailOf(account: unknown): string {
-  return String((account as { email?: unknown } | undefined)?.email ?? "");
-}
+const emailOf = (account: unknown) => (account as { email: string }).email;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading", email: null });

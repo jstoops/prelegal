@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-from prelegal_backend.chat import GREETING_REQUEST, MAX_MESSAGES
+from prelegal_backend.chat import GREETING_REQUEST, LLM_HISTORY, MAX_MESSAGES
 from prelegal_backend.config import REPO_ROOT
 from prelegal_backend.documents import load_catalog
 from prelegal_backend.llm import LlmError, LlmNotConfigured
@@ -140,6 +140,30 @@ class TestChatEndpoint:
         response = chat_client.get("/api/chat")
         assert response.status_code == 404
         assert response.json() == {"detail": "Not Found"}
+
+    def test_long_conversations_send_only_recent_messages_to_the_llm(
+        self, chat_client: TestClient, fake_llm: FakeLlm
+    ):
+        history = [
+            {"role": "user" if i % 2 else "assistant", "content": f"message {i}"}
+            for i in range(MAX_MESSAGES)
+        ]
+        assert chat(chat_client, history).status_code == 200
+        [messages] = fake_llm.calls
+        assert [m["content"] for m in messages[1:]] == [
+            m["content"] for m in history[-LLM_HISTORY:]
+        ]
+
+    def test_too_long_a_conversation_says_why(self, chat_client: TestClient, fake_llm: FakeLlm):
+        history = [{"role": "user", "content": "hi"}] * (MAX_MESSAGES + 1)
+        response = chat(chat_client, history)
+        assert response.status_code == 422
+        # "Value error, ..." messages are shown to the user.
+        assert response.json()["detail"][0]["msg"] == (
+            "Value error, This conversation is too long to continue. "
+            "Start a new document to keep going."
+        )
+        assert fake_llm.calls == []
 
 
 class TestChoosingADocument:

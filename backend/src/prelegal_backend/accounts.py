@@ -66,6 +66,10 @@ class User:
     email: str
 
 
+def _user(row) -> User:
+    return User(id=row["id"], email=row["email"])
+
+
 class EmailTaken(Exception):
     """An account with this email already exists."""
 
@@ -97,7 +101,7 @@ class Accounts:
             return None
         if not verify_password(password, row["password_hash"]):
             return None
-        return User(id=row["id"], email=row["email"])
+        return _user(row)
 
     def start_session(self, user: User) -> str:
         """Returns the new session's token, for the cookie."""
@@ -120,7 +124,7 @@ class Accounts:
                 " WHERE sessions.token_hash = ? AND sessions.expires_at > ?",
                 (hash_token(token), timestamp()),
             ).fetchone()
-        return User(id=row["id"], email=row["email"]) if row else None
+        return _user(row) if row else None
 
     def end_session(self, token: str) -> None:
         with connect(self.db_path) as conn:

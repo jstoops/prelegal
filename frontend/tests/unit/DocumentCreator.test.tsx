@@ -311,9 +311,16 @@ describe("DocumentCreator", () => {
 
     it("revokes the object URL after the download starts", async () => {
       const user = await renderCreator();
+      // Checked just after the click rather than after a wait, which a busy
+      // machine can stretch past the revoke's delay.
+      let revokedRightAfterClick: number | undefined;
+      vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(() => {
+        clicked.push({ href: "", download: "" });
+        queueMicrotask(() => (revokedRightAfterClick = revokeObjectURL.mock.calls.length));
+      });
       await user.click(downloadButton());
       await waitFor(() => expect(clicked).toHaveLength(1));
-      expect(revokeObjectURL).not.toHaveBeenCalled();
+      await waitFor(() => expect(revokedRightAfterClick).toBe(0));
       await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url"), {
         timeout: 2000,
       });

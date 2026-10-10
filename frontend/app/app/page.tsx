@@ -3,14 +3,13 @@ import Link from "next/link";
 import DocumentList from "@/components/DocumentList";
 import SavedDocumentList from "@/components/SavedDocumentList";
 import { loadDocuments } from "@/lib/catalog";
-import { creatorHref } from "@/lib/document";
+import { creatorHref, documentNames } from "@/lib/document";
 import { cardClass, primaryButtonClass } from "@/lib/styles";
 
 export const metadata: Metadata = { title: "New document" };
 
 export default async function DashboardPage() {
   const documents = await loadDocuments();
-  const documentNames = Object.fromEntries(documents.map((d) => [d.id, d.name]));
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-10 sm:px-6">
       <h1 className="text-3xl font-semibold tracking-tight text-heading">New document</h1>
@@ -37,7 +36,7 @@ export default async function DashboardPage() {
 
       {/* Hidden until the user has saved documents. */}
       <div className="mt-10 empty:hidden">
-        <SavedDocumentList documentNames={documentNames} variant="recent" />
+        <SavedDocumentList documentNames={documentNames(documents)} variant="recent" />
       </div>
 
       <section aria-labelledby="templates" className="mt-10">

@@ -253,6 +253,36 @@ describe("DocumentChat", () => {
       ]);
     });
 
+    it("saves a new copy if the saved one was deleted elsewhere", async () => {
+      let deleted = true;
+      const requests = mockChatApi((body) =>
+        deleted && body.savedId === "draft-1"
+          ? Response.json({ detail: "Document not found." }, { status: 404 })
+          : { reply: "Noted.", data: filledNdaData(), savedId: "draft-2" },
+      );
+      const onSaved = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <DocumentChat
+          data={defaultNdaData()}
+          onDataChange={() => {}}
+          onSaved={onSaved}
+          resume={{ savedId: "draft-1", messages: SAVED_HISTORY }}
+        />,
+      );
+
+      await user.type(messageBox(), "Hiring{Enter}");
+      expect(await log().findByRole("alert")).toHaveTextContent(
+        "This document was deleted, so your changes aren't being saved. Retry to save it as a new document.",
+      );
+
+      deleted = false;
+      await user.click(screen.getByRole("button", { name: "Retry" }));
+      await log().findByText("Noted.");
+      expect(requests.map((r) => r.savedId)).toEqual(["draft-1", null]);
+      expect(onSaved).toHaveBeenCalledWith("draft-2");
+    });
+
     it("resumes only once in strict mode", async () => {
       const requests = mockChatApi(greetThen());
       render(
