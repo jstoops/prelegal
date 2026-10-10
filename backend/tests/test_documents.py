@@ -108,6 +108,22 @@ class TestNormalize:
         assert fields["mndaTermType"] == "fixed"
         assert fields["modifications"] == ""
 
+    def test_clears_placeholder_text_saved_earlier(self):
+        # Documents saved before placeholder text was filtered out still show it.
+        party = empty_party().model_copy(
+            update={"company": "Bananas Inc", "print_name": "[null]", "title": "null", "notice_address": "[null]"}
+        )
+        data = DocumentData(
+            document_id="mutual-nda",
+            fields={"governingLaw": "[null]", "jurisdiction": "Austin, TX"},
+            parties=(party, party),
+        )
+        result = CATALOG.normalize(data)
+        assert result.fields["governingLaw"] == ""
+        assert result.fields["jurisdiction"] == "Austin, TX"
+        for p in result.parties:
+            assert p.model_dump() == {"print_name": "", "title": "", "company": "Bananas Inc", "notice_address": ""}
+
     def test_no_document_needs_no_fields(self):
         data = DocumentData(document_id=None, fields={}, parties=(empty_party(), empty_party()))
         assert CATALOG.normalize(data) == data
@@ -224,6 +240,45 @@ class TestApplyUpdates:
         data = nda_data()
         apply_updates(NDA, data, nda_updates(governingLaw="Delaware", party1={"title": "CEO"}))
         assert data == nda_data()
+
+    @pytest.mark.parametrize("text", ["[null]", "null", " NULL ", "undefined", "[Print Name]", "[]"])
+    def test_ignores_placeholder_text_from_the_llm(self, text: str):
+        data = nda_data(governingLaw="Delaware")
+        data.parties = (data.parties[0].model_copy(update={"title": "CEO"}), data.parties[1])
+        result = apply_updates(
+            NDA,
+            data,
+            nda_updates(
+                governingLaw=text,
+                party1={"company": "Acme", "printName": text, "title": text, "noticeAddress": text},
+            ),
+        )
+        assert result.fields["governingLaw"] == "Delaware"
+        assert result.parties[0].model_dump() == {
+            "print_name": "",
+            "title": "CEO",
+            "company": "Acme",
+            "notice_address": "",
+        }
+
+    def test_keeps_real_values_that_mention_null_or_brackets(self):
+        result = apply_updates(
+            NDA,
+            nda_data(),
+            nda_updates(
+                modifications="None",
+                purpose="Evaluating [Project X] for Null Industries",
+                party1={"company": "Nullable Corp", "title": "Head of [R&D] ops"},
+            ),
+        )
+        assert result.fields["modifications"] == "None"
+        assert result.fields["purpose"] == "Evaluating [Project X] for Null Industries"
+        assert result.parties[0].company == "Nullable Corp"
+        assert result.parties[0].title == "Head of [R&D] ops"
+
+    def test_tells_the_llm_to_use_json_null(self):
+        schema = json.dumps(CATALOG.updates_model(NDA).model_json_schema())
+        assert schema.count('never text such as \\"null\\" or \\"[null]\\"') >= 4 + len(NDA.fields)
 
     def test_party_updates_schema_uses_camel_case(self):
         assert set(PartyUpdates.model_json_schema()["properties"]) == {

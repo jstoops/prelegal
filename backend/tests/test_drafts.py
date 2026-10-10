@@ -187,6 +187,21 @@ class TestDocumentsApi:
         assert response.json() == {"detail": "This document can no longer be opened."}
         assert len(documents(chat_client)) == 1  # still listed, so it can be deleted
 
+    def test_placeholder_text_saved_earlier_opens_blank(
+        self, chat_client: TestClient, settings: Settings
+    ):
+        saved_id = turn(chat_client)["savedId"]
+        with closing(sqlite3.connect(settings.db_path)) as conn, conn:
+            conn.execute(
+                "UPDATE documents SET data = json_set(data,"
+                " '$.parties[0].company', 'Bananas Inc', '$.parties[0].printName', '[null]')"
+            )
+
+        party = chat_client.get(f"/api/documents/{saved_id}").json()["data"]["parties"][0]
+
+        assert party["company"] == "Bananas Inc"
+        assert party["printName"] == ""
+
     @pytest.mark.parametrize("method", ["PUT", "PATCH", "POST"])
     def test_other_methods_are_404(self, chat_client: TestClient, method):
         assert chat_client.request(method, "/api/documents/abc").status_code == 404
